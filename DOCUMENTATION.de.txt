@@ -12,6 +12,7 @@ Gezeigt wird:
 - DMA-Regionen ueber R4DEV allokieren/freigeben
 - PCI-Klasse suchen, BAR lesen und MMIO-BAR mappen
 - shared IRQ-Handler registrieren und IRQ-Statistik abfragen
+- IRQ-stammende Deferred Work mit Wait, Status und Release
 - Rueckkehr aus init und shutdown mit Status 0
 
 Build:
@@ -27,14 +28,35 @@ Im normalen Image liegt die Datei unter:
 
     C:\R4OS\DRIVERS\EXAMPLE.R4D
 
-Manueller Test in R4OS:
+Manueller Test ueber den Boot-Treiberplan:
 
-    C:\>LOAD EXAMPLE
-    C:\>UNLOAD EXAMPLE
+    DRIVER=EXAMPLE
+
+Nach dem Neustart pruefen DriverDiag und die Bootmeldungen den aktiven
+Treiber. Die Terminal-Shell besitzt keine LOAD-/UNLOAD-Befehle.
 
 Option fuer lokale Experimente:
 
     OPTION EXAMPLE mode=manual
+
+Gezielte Workqueue-Lebenszyklusprobe im Testimage:
+
+    OPTION EXAMPLE mode=workqueue-stress
+
+Die Probe fuellt die Queue hinter einem laufenden Callback, prueft retained
+Completionkapazitaet, Cancel, stale Handle und Handlerfehler.
+
+Zentrale Cleanup-/Quiesce-Probe waehrend des Boot-Treiberplans:
+
+    DRIVER=EXAMPLE
+    OPTION EXAMPLE mode=workqueue-cleanup-stress
+    DRVDIAG /STRESS
+
+Nach der Lebenszyklusprobe liefert Init absichtlich Fehler -8. Der dadurch
+ausgeloeste Failed-Load-Cleanup ruft Shutdown auf. Dort bleiben absichtlich
+ein laufender und ein queued Callback fuer den zentralen Owner-Cleanup
+zurueck; der Cleanup muss queued Arbeit abbrechen und laufende Arbeit vor der
+Modulfreigabe joinen.
 
 Projektstruktur seit 0.51.22
 --------------------------------

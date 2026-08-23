@@ -6,6 +6,10 @@ var irq_work_armed: bool = false;
 var irq_work_handle: u32 = 0;
 var deferred_work_hits: u32 = 0;
 var deferred_work_context: usize = 0;
+var work_stress_gate_open: bool = false;
+var work_stress_started: bool = false;
+var work_stress_mode: bool = false;
+var cleanup_stress_started: bool = false;
 var storage_state: ExampleStorageState = .{};
 var usb_host_state: ExampleUsbHostState = .{};
 var storage_bytes: [4096]u8 = .{0} ** 4096;
@@ -79,6 +83,8 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
     }
 
     const mode = ctx.getOption("EXAMPLE", "mode");
+    const workqueue_stress = optionEquals(mode, "workqueue-stress");
+    const cleanup_stress = optionEquals(mode, "workqueue-cleanup-stress");
     if (mode[0] != 0) {
         ctx.logInfo("EXAMPLE.R4D option mode is set");
     }
@@ -132,11 +138,17 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
         return -2;
     }
     if (!deferredWorkSmoke(&ctx)) return -6;
+    if (workqueue_stress or cleanup_stress) {
+        if (!workqueueStressSmoke(&ctx)) return -7;
+        work_stress_mode = true;
+        if (cleanup_stress) return -8;
+    }
 
     return 0;
 }
 
 export fn example_shutdown() callconv(.c) i32 {
+    if (work_stress_mode and !armCleanupStress()) return -7;
     driver_api = null;
     return 0;
 }
@@ -220,6 +232,219 @@ fn workHandle() u32 {
 fn deferredWorkHitCount() u32 {
     const hits: *volatile u32 = &deferred_work_hits;
     return hits.*;
+}
+
+fn workqueueStressSmoke(ctx: *const r4os.r4dev.DriverContext) bool {
+    @atomicStore(bool, &work_stress_gate_open, false, .release);
+    @atomicStore(bool, &work_stress_started, false, .release);
+
+    var handles: [r4os.abi.driver_work_queue_capacity]u32 =
+        .{0} ** r4os.abi.driver_work_queue_capacity;
+    var handle_count: usize = 0;
+    if (ctx.workSubmit(stressBlockingWork, 0, r4os.abi.driver_work_flag_none, &handles[0]) != 0 or handles[0] == 0) {
+        ctx.logError("EXAMPLE.R4D work stress blocker submit failed");
+        return false;
+    }
+    handle_count = 1;
+
+    const start_deadline = ctx.tickCount() + 100;
+    while (!@atomicLoad(bool, &work_stress_started, .acquire) and ctx.tickCount() < start_deadline) {
+        ctx.waitTicks(1);
+    }
+    if (!@atomicLoad(bool, &work_stress_started, .acquire)) {
+        @atomicStore(bool, &work_stress_gate_open, true, .release);
+        ctx.logError("EXAMPLE.R4D work stress blocker did not start");
+        return false;
+    }
+
+    var observed_full = false;
+    while (handle_count < handles.len) {
+        var handle: u32 = 0;
+        const rc = ctx.workSubmit(stressSuccessWork, handle_count, r4os.abi.driver_work_flag_none, &handle);
+        if (rc == -2) {
+            observed_full = true;
+            break;
+        }
+        if (rc != 0 or handle == 0) {
+            @atomicStore(bool, &work_stress_gate_open, true, .release);
+            ctx.logError("EXAMPLE.R4D work stress fill failed");
+            return false;
+        }
+        handles[handle_count] = handle;
+        handle_count += 1;
+    }
+    if (!observed_full) {
+        var rejected_handle: u32 = 0;
+        observed_full = ctx.workSubmit(stressSuccessWork, 0, r4os.abi.driver_work_flag_none, &rejected_handle) == -2 and
+            rejected_handle == 0;
+    }
+    if (!observed_full or handle_count < 2) {
+        @atomicStore(bool, &work_stress_gate_open, true, .release);
+        ctx.logError("EXAMPLE.R4D work stress full semantics failed");
+        return false;
+    }
+
+    const stale_handle = handles[1];
+    if (ctx.workCancel(stale_handle) != 0) {
+        @atomicStore(bool, &work_stress_gate_open, true, .release);
+        ctx.logError("EXAMPLE.R4D work stress cancel failed");
+        return false;
+    }
+    var cancelled_result: i32 = 0;
+    if (ctx.completionWait(stale_handle, 100, &cancelled_result) != r4os.abi.driver_work_result_cancelled or
+        cancelled_result != r4os.abi.driver_work_result_cancelled)
+    {
+        @atomicStore(bool, &work_stress_gate_open, true, .release);
+        ctx.logError("EXAMPLE.R4D work stress cancelled wait failed");
+        return false;
+    }
+    var cancelled_status: r4os.abi.DriverCompletionStatus = .{};
+    if (ctx.completionStatus(stale_handle, &cancelled_status) != 0 or
+        cancelled_status.state != r4os.abi.driver_work_state_cancelled)
+    {
+        @atomicStore(bool, &work_stress_gate_open, true, .release);
+        ctx.logError("EXAMPLE.R4D work stress cancelled status failed");
+        return false;
+    }
+
+    var retained_probe: u32 = 0;
+    if (ctx.workSubmit(stressSuccessWork, 0, r4os.abi.driver_work_flag_none, &retained_probe) != -2 or retained_probe != 0) {
+        @atomicStore(bool, &work_stress_gate_open, true, .release);
+        ctx.logError("EXAMPLE.R4D retained completion capacity failed");
+        return false;
+    }
+    if (ctx.completionRelease(stale_handle) != 0) {
+        @atomicStore(bool, &work_stress_gate_open, true, .release);
+        ctx.logError("EXAMPLE.R4D work stress cancelled release failed");
+        return false;
+    }
+    handles[1] = 0;
+
+    var error_handle: u32 = 0;
+    if (ctx.workSubmit(stressErrorWork, 0, r4os.abi.driver_work_flag_none, &error_handle) != 0 or error_handle == 0) {
+        @atomicStore(bool, &work_stress_gate_open, true, .release);
+        ctx.logError("EXAMPLE.R4D work stress error submit failed");
+        return false;
+    }
+    var stale_status: r4os.abi.DriverCompletionStatus = .{};
+    if (ctx.completionStatus(stale_handle, &stale_status) == 0) {
+        @atomicStore(bool, &work_stress_gate_open, true, .release);
+        ctx.logError("EXAMPLE.R4D stale work handle accepted");
+        return false;
+    }
+
+    @atomicStore(bool, &work_stress_gate_open, true, .release);
+    var index: usize = 0;
+    while (index < handle_count) : (index += 1) {
+        const handle = handles[index];
+        if (handle == 0) continue;
+        var result: i32 = -99;
+        if (ctx.completionWait(handle, 500, &result) != 0 or result != 0) {
+            ctx.logError("EXAMPLE.R4D work stress completion failed");
+            return false;
+        }
+        var status: r4os.abi.DriverCompletionStatus = .{};
+        if (ctx.completionStatus(handle, &status) != 0 or status.state != r4os.abi.driver_work_state_completed or
+            ctx.completionRelease(handle) != 0)
+        {
+            ctx.logError("EXAMPLE.R4D work stress status/release failed");
+            return false;
+        }
+    }
+
+    var error_result: i32 = 0;
+    if (ctx.completionWait(error_handle, 500, &error_result) != 0 or error_result != -42) {
+        ctx.logError("EXAMPLE.R4D work stress handler error failed");
+        return false;
+    }
+    var error_status: r4os.abi.DriverCompletionStatus = .{};
+    if (ctx.completionStatus(error_handle, &error_status) != 0 or
+        error_status.state != r4os.abi.driver_work_state_completed or error_status.result != -42 or
+        ctx.completionRelease(error_handle) != 0)
+    {
+        ctx.logError("EXAMPLE.R4D work stress error release failed");
+        return false;
+    }
+
+    var summary: r4os.abi.DriverWorkSummary = .{};
+    if (ctx.workSummary(&summary) != 0 or summary.queue_depth != 0 or summary.active_workers != 0 or
+        summary.failed == 0 or summary.cancelled == 0 or summary.dropped < 2)
+    {
+        ctx.logError("EXAMPLE.R4D work stress summary failed");
+        return false;
+    }
+    ctx.logInfo("EXAMPLE.R4D workqueue stress ok");
+    return true;
+}
+
+fn stressBlockingWork(context: usize) callconv(.c) i32 {
+    _ = context;
+    @atomicStore(bool, &work_stress_started, true, .release);
+    while (!@atomicLoad(bool, &work_stress_gate_open, .acquire)) {
+        const api = driver_api orelse return -41;
+        const ctx = r4os.r4dev.DriverContext.init(api);
+        ctx.waitTicks(1);
+    }
+    return 0;
+}
+
+fn stressSuccessWork(context: usize) callconv(.c) i32 {
+    _ = context;
+    return 0;
+}
+
+fn stressErrorWork(context: usize) callconv(.c) i32 {
+    _ = context;
+    return -42;
+}
+
+fn armCleanupStress() bool {
+    const api = driver_api orelse return false;
+    const ctx = r4os.r4dev.DriverContext.init(api);
+    @atomicStore(bool, &cleanup_stress_started, false, .release);
+    var running_handle: u32 = 0;
+    if (ctx.workSubmit(cleanupBlockingWork, @intFromPtr(api), r4os.abi.driver_work_flag_none, &running_handle) != 0 or
+        running_handle == 0)
+    {
+        ctx.logError("EXAMPLE.R4D cleanup stress running submit failed");
+        return false;
+    }
+    const start_deadline = ctx.tickCount() + 100;
+    while (!@atomicLoad(bool, &cleanup_stress_started, .acquire) and ctx.tickCount() < start_deadline) {
+        ctx.waitTicks(1);
+    }
+    if (!@atomicLoad(bool, &cleanup_stress_started, .acquire)) {
+        ctx.logError("EXAMPLE.R4D cleanup stress running work did not start");
+        return false;
+    }
+    var queued_handle: u32 = 0;
+    if (ctx.workSubmit(stressSuccessWork, 0, r4os.abi.driver_work_flag_none, &queued_handle) != 0 or queued_handle == 0) {
+        ctx.logError("EXAMPLE.R4D cleanup stress queued submit failed");
+        return false;
+    }
+    ctx.logInfo("EXAMPLE.R4D cleanup stress armed");
+    return true;
+}
+
+fn cleanupBlockingWork(raw_api: usize) callconv(.c) i32 {
+    const api: *const r4os.r4dev.DriverApi = @ptrFromInt(raw_api);
+    const ctx = r4os.r4dev.DriverContext.init(api);
+    @atomicStore(bool, &cleanup_stress_started, true, .release);
+    ctx.waitTicks(@max(@as(u64, ctx.timerFrequency()) / 10, 1));
+    return 0;
+}
+
+fn optionEquals(value: [*:0]const u8, expected: []const u8) bool {
+    var index: usize = 0;
+    while (index < expected.len) : (index += 1) {
+        if (value[index] == 0 or optionUpper(value[index]) != optionUpper(expected[index])) return false;
+    }
+    return value[expected.len] == 0;
+}
+
+fn optionUpper(value: u8) u8 {
+    if (value >= 'a' and value <= 'z') return value - ('a' - 'A');
+    return value;
 }
 
 fn storageContractSmoke(ctx: *const r4os.r4dev.DriverContext) bool {
