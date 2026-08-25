@@ -98,6 +98,53 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
     ctx.logInfo("EXAMPLE.R4D dma region ok");
     ctx.freeDmaRegion(&dma);
 
+    // Controlled v19 consumer: keep this example backend on the synchronous
+    // depth-one adapter, but exercise the complete owner-bound segment-DMA
+    // lifetime over its existing module buffer.
+    var dma_pin: r4os.abi.DmaPinnedBuffer = .{};
+    if (ctx.pinDmaBuffer(storage_bytes[0..], &dma_pin) != 0) {
+        ctx.logError("EXAMPLE.R4D dma pin failed");
+        return -1;
+    }
+    var dma_mapping: r4os.abi.DmaMapping = .{};
+    const dma_constraints = r4os.abi.DmaConstraints{
+        .dma_mask = 0xFFFF_FFFF,
+        .boundary = 4096,
+        .max_segment_bytes = 4096,
+        .alignment = 16,
+        .max_segments = 4,
+        .flags = r4os.abi.dma_flag_coherent | r4os.abi.dma_flag_allow_bounce,
+    };
+    if (ctx.mapDmaPinned(&dma_pin, &dma_constraints, r4os.abi.dma_direction_bidirectional, &dma_mapping) != 0 or
+        dma_mapping.segment_count == 0 or dma_mapping.segment_count > dma_constraints.max_segments)
+    {
+        _ = ctx.unpinDmaBuffer(&dma_pin);
+        ctx.logError("EXAMPLE.R4D dma segment map failed");
+        return -1;
+    }
+    var segment_index: usize = 0;
+    while (segment_index < dma_mapping.segment_count) : (segment_index += 1) {
+        const segment = dma_mapping.segments[segment_index];
+        if (segment.bytes == 0 or segment.phys_addr > dma_constraints.dma_mask or
+            @as(u64, segment.bytes - 1) > dma_constraints.dma_mask - segment.phys_addr)
+        {
+            _ = ctx.unmapDma(&dma_mapping);
+            _ = ctx.unpinDmaBuffer(&dma_pin);
+            ctx.logError("EXAMPLE.R4D dma segment bounds failed");
+            return -1;
+        }
+    }
+    if (ctx.syncDmaForCpu(&dma_mapping) != 0 or
+        ctx.syncDmaForDevice(&dma_mapping) != 0 or
+        ctx.unmapDma(&dma_mapping) != 0 or
+        ctx.unmapDma(&dma_mapping) == 0 or
+        ctx.unpinDmaBuffer(&dma_pin) != 0)
+    {
+        ctx.logError("EXAMPLE.R4D dma teardown failed");
+        return -1;
+    }
+    ctx.logInfo("EXAMPLE.R4D dma segment lifetime ok");
+
     var cleanup_dma: r4os.abi.DmaBuffer = .{};
     if (ctx.allocDmaRegion(4096, 4096, &cleanup_dma) == 0) {
         ctx.logInfo("EXAMPLE.R4D dma cleanup owner armed");

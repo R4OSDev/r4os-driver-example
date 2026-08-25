@@ -1,10 +1,12 @@
 ﻿# EXAMPLE.R4D
 
-`EXAMPLE.R4D` is an independent R4OS driver implemented in Zig.
+`EXAMPLE.R4D` is an independent R4OS driver implemented in Zig. It
+deliberately keeps its storage fixture on the synchronous depth-one adapter
+while exercising the DriverApi v19 pin/map/sync/unmap DMA lifetime.
 
 ## Package
 
-- Version: `0.1.1`
+- Version: `0.1.2`
 - Image target: `/R4OS/DRIVERS/EXAMPLE.R4D`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`

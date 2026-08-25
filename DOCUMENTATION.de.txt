@@ -2,27 +2,30 @@
 ===================
 
 Dieses Projekt ist der einfache Startpunkt fuer neue R4D-Treiber in Zig.
-Es nutzt Code/System/SDK/r4os statt handgeschriebener Bytecode-Emitter.
+Es nutzt das eigenstaendige SDK-Paket `r4os` statt handgeschriebener
+Bytecode-Emitter.
 
 Gezeigt wird:
 - R4D-init/shutdown-Entries ueber `r4os.r4dev.driverEntriesAsm`
 - `r4os.r4dev.DriverApi` und `r4os.r4dev.DriverContext`
 - `logInfo`, `logWarn` und `logError`
 - Lesen einer optionalen CONFIG.R4S-Option
-- DMA-Regionen ueber R4DEV allokieren/freigeben
+- kontiguierliche DMA-Regionen ueber R4DEV allokieren/freigeben
+- vorhandene residente Puffer pinnen, mit 32-Bit-Maske und 4-KiB-Boundary als
+  Segment-DMA mappen, synchronisieren und genau einmal abbauen
 - PCI-Klasse suchen, BAR lesen und MMIO-BAR mappen
 - shared IRQ-Handler registrieren und IRQ-Statistik abfragen
 - IRQ-stammende Deferred Work mit Wait, Status und Release
 - Rueckkehr aus init und shutdown mit Status 0
 
-Build:
+Build unter Windows beziehungsweise Linux/macOS:
 
-    cd Code
-    ..\DevTools\Zig\zig.exe build
+    Build.bat
+    ./Build.sh
 
-Ergebnis:
+Ergebnis im Workspace:
 
-    Code\zig-out\EXAMPLE.R4D
+    Artifacts/Modules/Example/EXAMPLE.R4D
 
 Im normalen Image liegt die Datei unter:
 
@@ -33,7 +36,8 @@ Manueller Test ueber den Boot-Treiberplan:
     DRIVER=EXAMPLE
 
 Nach dem Neustart pruefen DriverDiag und die Bootmeldungen den aktiven
-Treiber. Die Terminal-Shell besitzt keine LOAD-/UNLOAD-Befehle.
+Treiber. Fuer gezielte Lebenszyklusdiagnosen stehen ausserdem `R4D LOAD` und
+`R4D UNLOAD` zur Verfuegung.
 
 Option fuer lokale Experimente:
 
@@ -59,18 +63,18 @@ zurueck; der Cleanup muss queued Arbeit abbrechen und laufende Arbeit vor der
 Modulfreigabe joinen.
 
 Projektstruktur seit 0.51.22
---------------------------------
+----------------------------
 
 Dieses Verzeichnis ist ein eigenstaendiges R4OS-SDK-Projekt fuer EXAMPLE.R4D.
 
 Build:
 
-    cd Code\System\Driver\Example
-    ..\..\..\DevTools\Zig\zig.exe build
+    Build.bat
+    ./Build.sh
 
 Artefakt:
 
-    zig-out\EXAMPLE.R4D
+    Artifacts/Modules/Example/EXAMPLE.R4D
 
 Manifest:
 
