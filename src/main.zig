@@ -30,10 +30,22 @@ var storage_backend: r4os.abi.StorageBackend = .{
     .status = storageStatus,
 };
 var usb_host_backend: r4os.abi.UsbHostController = .{
+    .flags = r4os.abi.usb_host_flag_port_scan |
+        r4os.abi.usb_host_flag_control |
+        r4os.abi.usb_host_flag_bulk |
+        r4os.abi.usb_host_flag_interrupt |
+        r4os.abi.usb_host_flag_poll_fallback,
     .source = r4os.abi.usb_host_source_disk,
     .context = &usb_host_state,
     .port_scan = usbHostPortScan,
+    .address_device = usbHostAddressDevice,
+    .configure_device = usbHostConfigureDevice,
     .control_transfer = usbHostControlTransfer,
+    .bulk_transfer = usbHostBulkTransfer,
+    .interrupt_transfer = usbHostInterruptTransfer,
+    .reset_port = usbHostResetPort,
+    .clear_halt = usbHostEndpointOperation,
+    .reset_endpoint = usbHostEndpointOperation,
     .poll = usbHostPoll,
     .shutdown = usbHostShutdown,
     .status = usbHostStatus,
@@ -51,7 +63,12 @@ const ExampleStorageState = extern struct {
 
 const ExampleUsbHostState = extern struct {
     scans: u64 = 0,
+    addresses: u64 = 0,
+    configurations: u64 = 0,
     controls: u64 = 0,
+    bulk_transfers: u64 = 0,
+    interrupt_transfers: u64 = 0,
+    resets: u64 = 0,
     polls: u64 = 0,
     shutdowns: u64 = 0,
 };
@@ -560,6 +577,10 @@ fn usbHostContractSmoke(ctx: *const r4os.r4dev.DriverContext) bool {
         ctx.logError("EXAMPLE.R4D usb host unregister failed");
         return false;
     }
+    if (usb_host_state.shutdowns != 1) {
+        ctx.logError("EXAMPLE.R4D usb host shutdown contract failed");
+        return false;
+    }
     ctx.logInfo("EXAMPLE.R4D usb host backend ok");
     return true;
 }
@@ -638,6 +659,19 @@ fn usbHostPortScan(context: ?*anyopaque) callconv(.c) i32 {
     return 0;
 }
 
+fn usbHostAddressDevice(context: ?*anyopaque, port: u8, out: *r4os.abi.UsbDeviceHandle) callconv(.c) i32 {
+    const state = usbHostState(context) orelse return -1;
+    state.addresses += 1;
+    out.* = .{ .port = port, .slot_id = 1, .speed = 3 };
+    return 0;
+}
+
+fn usbHostConfigureDevice(context: ?*anyopaque, _: *const r4os.abi.UsbDeviceHandle, _: u8) callconv(.c) i32 {
+    const state = usbHostState(context) orelse return -1;
+    state.configurations += 1;
+    return 0;
+}
+
 fn usbHostControlTransfer(context: ?*anyopaque, device: *const r4os.abi.UsbDeviceHandle, request: *const r4os.abi.UsbControlRequest, buffer: [*]u8, len: u32) callconv(.c) i32 {
     _ = device;
     _ = request;
@@ -645,6 +679,31 @@ fn usbHostControlTransfer(context: ?*anyopaque, device: *const r4os.abi.UsbDevic
     _ = len;
     const state = usbHostState(context) orelse return -1;
     state.controls += 1;
+    return 0;
+}
+
+fn usbHostBulkTransfer(context: ?*anyopaque, _: *const r4os.abi.UsbEndpointHandle, _: [*]u8, len: u32, _: u32) callconv(.c) i32 {
+    const state = usbHostState(context) orelse return -1;
+    state.bulk_transfers += 1;
+    return @intCast(len);
+}
+
+fn usbHostInterruptTransfer(context: ?*anyopaque, _: *const r4os.abi.UsbEndpointHandle, _: [*]u8, _: u32, actual: *u32) callconv(.c) i32 {
+    const state = usbHostState(context) orelse return -1;
+    state.interrupt_transfers += 1;
+    actual.* = 0;
+    return 0;
+}
+
+fn usbHostResetPort(context: ?*anyopaque, _: u8) callconv(.c) i32 {
+    const state = usbHostState(context) orelse return -1;
+    state.resets += 1;
+    return 0;
+}
+
+fn usbHostEndpointOperation(context: ?*anyopaque, _: *const r4os.abi.UsbEndpointHandle) callconv(.c) i32 {
+    const state = usbHostState(context) orelse return -1;
+    state.resets += 1;
     return 0;
 }
 
@@ -667,8 +726,13 @@ fn usbHostStatus(context: ?*anyopaque, out: *r4os.abi.UsbHostStatus) callconv(.c
         .source = r4os.abi.usb_host_source_disk,
         .ports = 0,
         .devices = 0,
-        .transfers = state.controls,
+        .transfers = state.controls + state.bulk_transfers + state.interrupt_transfers,
         .failures = 0,
+        .flags = usb_host_backend.flags,
+        .queue_depth = 4,
+        .max_transfer_bytes = 65_536,
+        .completions = state.controls + state.bulk_transfers + state.interrupt_transfers,
+        .polls = state.polls,
     };
     return 0;
 }

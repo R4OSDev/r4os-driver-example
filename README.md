@@ -6,13 +6,17 @@ while exercising the DriverApi v19 pin/map/sync/unmap DMA lifetime.
 
 ## Package
 
-- Version: `0.1.2`
+- Version: `0.1.3`
 - Image target: `/R4OS/DRIVERS/EXAMPLE.R4D`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`
 
 The manifest is the single source of truth for the artifact, imports, image
 target, and package metadata.
+
+The test fixture also exercises the complete DriverApi v21 USB-host v2
+descriptor, including productive callback capabilities and owner-bound
+shutdown during unregister.
 
 ## Build
 

@@ -16,6 +16,8 @@ Gezeigt wird:
 - PCI-Klasse suchen, BAR lesen und MMIO-BAR mappen
 - shared IRQ-Handler registrieren und IRQ-Statistik abfragen
 - IRQ-stammende Deferred Work mit Wait, Status und Release
+- vollstaendiger DriverApi-v21-USB-Host-v2-Vertrag mit Port-, Control-, Bulk-,
+  Interrupt-, Poll-/Recoverycallbacks und ownergebundenem Unregister/Shutdown
 - Rueckkehr aus init und shutdown mit Status 0
 
 Build unter Windows beziehungsweise Linux/macOS:
@@ -27,7 +29,7 @@ Ergebnis im Workspace:
 
     Artifacts/Modules/Example/EXAMPLE.R4D
 
-Im normalen Image liegt die Datei unter:
+Im Testimage liegt die Datei unter:
 
     C:\R4OS\DRIVERS\EXAMPLE.R4D
 
