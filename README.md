@@ -6,7 +6,7 @@ while exercising the DriverApi v19 pin/map/sync/unmap DMA lifetime.
 
 ## Package
 
-- Version: `0.1.3`
+- Version: `0.1.4`
 - Image target: `/R4OS/DRIVERS/EXAMPLE.R4D`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`
@@ -44,3 +44,10 @@ Detailed German technical notes from the migration are preserved in
 Original R4OS material is licensed under Apache License 2.0. See `LICENSE`
 and `NOTICE`. Any repository-specific external material is documented in
 `THIRD_PARTY_NOTICES.md`.
+
+`OPTION EXAMPLE mode=gfx-memory-test` selects a bounded DriverApi v25 fixture:
+an 80-MB resident BO, 20,480 direct DMA segments, a distinct GPU residency VA,
+concurrent CPU maps, rejected forged/incomplete completions and balanced
+release. This mode performs no GPU submission and replaces the ordinary
+EXAMPLE fixtures for that boot. Native GPU page tables, VRAM and scanout are
+outside this memory-contract test.

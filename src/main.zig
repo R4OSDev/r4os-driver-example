@@ -100,6 +100,11 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
     }
 
     const mode = ctx.getOption("EXAMPLE", "mode");
+    if (optionEquals(mode, "gfx-memory-test")) {
+        const ok = @import("gfx_memory_test.zig").run(&ctx);
+        ctx.logInfo(if (ok) "EXAMPLE.R4D gfx-memory result: OK bytes=83886080 segments=20480 submission=none" else "EXAMPLE.R4D gfx-memory result: FAILED");
+        return if (ok) 0 else -6;
+    }
     const workqueue_stress = optionEquals(mode, "workqueue-stress");
     const cleanup_stress = optionEquals(mode, "workqueue-cleanup-stress");
     if (mode[0] != 0) {
