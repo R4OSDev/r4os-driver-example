@@ -2,7 +2,7 @@
 R4OS_MODULE_MANIFEST=2
 KIND=R4D
 NAME=EXAMPLE
-VERSION=0.1.5
+VERSION=0.1.6
 LANGUAGE=Zig
 SOURCE=src/main.zig
 TARGET=/R4OS/DRIVERS/EXAMPLE.R4D
@@ -12,3 +12,5 @@ META=r4d.name=EXAMPLE
 META=r4d.type=misc
 META=module.name=R4D_EXAMPLE
 META=test.fixture=smoke
+ZIG_MODULE=r4gfx_edid:../../Libraries/R4GFX/Display/edid.zig
+ZIG_MODULE=r4gfx_outputs:../../Libraries/R4GFX/Bindings/Zig/outputs.zig

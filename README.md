@@ -6,7 +6,7 @@ while exercising the DriverApi v19 pin/map/sync/unmap DMA lifetime.
 
 ## Package
 
-- Version: `0.1.5`
+- Version: `0.1.6`
 - Image target: `/R4OS/DRIVERS/EXAMPLE.R4D`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`
@@ -61,3 +61,12 @@ logging, reset tests and job acquisition run through driver-work callbacks.
 DISPLAYD uses the delay to test cancellation, multiple waits and producer
 death. The fixture cannot be used as a rendering backend. Unregister proves
 quiescence because this fixture has no DMA engine.
+
+`OPTION EXAMPLE mode=gfx-output-test` selects a DriverApi27 virtual connector
+(adapter 0xFFFF0007). Queue barriers publish disconnect, an earlier Hisense
+65U8QF base block, and a reset/reconnect to the QEMU fixture. Publication is
+copied, owner-bound and generation-safe. This exercises the catalog and the
+existing desktop activity wake, with no GPU, physical hotplug or HDMI I/O.
+The driver uses manifest-declared compiled `r4gfx_edid`/`r4gfx_outputs`
+modules; shared PS7 orchestration in SDK/Tools/BuildModule.ps1 builds them
+from local Settings.R4S mappings on Windows and Linux.

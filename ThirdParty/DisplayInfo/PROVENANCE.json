@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "upstream": "https://gitlab.freedesktop.org/emersion/libdisplay-info",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2022 The libdisplay-info Contributors",
+  "fixtures": [
+    {
+      "file": "qemu.edid",
+      "source": "ExFiles/Reference/GFX/LibdisplayInfo/test/data/qemu.edid",
+      "sha256": "e2020bcce3f0c2edfbd7be364150dd7d45e737f75df86433308bcba84f9079c1",
+      "license": "MIT",
+      "transformation": "none"
+    },
+    {
+      "file": "ossipc-hisense-base.bin",
+      "source": "ExFiles/Reference/GFX/Baseline/OssiPC/edid-base.bin",
+      "sha256": "81029e300854aa6c43e3e30ca8062ba32dffbf1d5fcd0e6c7d2c8da5202c7b78",
+      "license": "Original R4OS hardware measurement",
+      "transformation": "none; previously captured 128-byte base only, no new connection"
+    }
+  ],
+  "location": "src/fixtures/",
+  "usage": "Explicit virtual gfx-output-test only; no new OssiPC access."
+}
