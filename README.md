@@ -6,7 +6,7 @@ while exercising the DriverApi v19 pin/map/sync/unmap DMA lifetime.
 
 ## Package
 
-- Version: `0.1.4`
+- Version: `0.1.5`
 - Image target: `/R4OS/DRIVERS/EXAMPLE.R4D`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`
@@ -51,3 +51,13 @@ concurrent CPU maps, rejected forged/incomplete completions and balanced
 release. This mode performs no GPU submission and replaces the ordinary
 EXAMPLE fixtures for that boot. Native GPU page tables, VRAM and scanout are
 outside this memory-contract test.
+
+`OPTION EXAMPLE mode=gfx-queue-test` selects the DriverApi v26 queue fixture.
+It registers a diagnostic adapter (0xFFFF0006), holds real BO leases and
+checks page-bounded DMA descriptors without submitting hardware work. Copy
+requests receive a deliberately failed completion after three seconds from
+the shared timer IRQ. The IRQ checks stale, duplicate and unproven completion;
+logging, reset tests and job acquisition run through driver-work callbacks.
+DISPLAYD uses the delay to test cancellation, multiple waits and producer
+death. The fixture cannot be used as a rendering backend. Unregister proves
+quiescence because this fixture has no DMA engine.

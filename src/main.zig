@@ -9,6 +9,7 @@ var deferred_work_context: usize = 0;
 var work_stress_gate_open: bool = false;
 var work_stress_started: bool = false;
 var work_stress_mode: bool = false;
+var gfx_queue_mode = false;
 var cleanup_stress_started: bool = false;
 var storage_state: ExampleStorageState = .{};
 var usb_host_state: ExampleUsbHostState = .{};
@@ -100,6 +101,10 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
     }
 
     const mode = ctx.getOption("EXAMPLE", "mode");
+    if (optionEquals(mode, "gfx-queue-test")) {
+        gfx_queue_mode = true;
+        return if (@import("gfx_queue_test.zig").init(&ctx)) 0 else -6;
+    }
     if (optionEquals(mode, "gfx-memory-test")) {
         const ok = @import("gfx_memory_test.zig").run(&ctx);
         ctx.logInfo(if (ok) "EXAMPLE.R4D gfx-memory result: OK bytes=83886080 segments=20480 submission=none" else "EXAMPLE.R4D gfx-memory result: FAILED");
@@ -217,6 +222,12 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
 }
 
 export fn example_shutdown() callconv(.c) i32 {
+    if (gfx_queue_mode) {
+        const ctx = r4os.r4dev.DriverContext.init(driver_api orelse return -1);
+        const rc = @import("gfx_queue_test.zig").shutdown(&ctx);
+        if (rc != 0) return rc;
+        gfx_queue_mode = false;
+    }
     if (work_stress_mode and !armCleanupStress()) return -7;
     driver_api = null;
     return 0;
