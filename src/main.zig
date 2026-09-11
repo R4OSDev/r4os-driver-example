@@ -166,6 +166,14 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
             return -1;
         }
     }
+    const has_dma_ranges = ctx.supportsDriverApi(34, @offsetOf(r4os.abi.DriverApi, "dma_sync_range_for_cpu") + 8);
+    if (has_dma_ranges and !dmaRangeSmoke(&ctx, &dma_mapping)) {
+        _ = ctx.unmapDma(&dma_mapping);
+        _ = ctx.unpinDmaBuffer(&dma_pin);
+        ctx.logError("EXAMPLE.R4D dma range FAILED");
+        return -1;
+    }
+    const stale_mapping = r4os.abi.DmaMapping{ .handle = dma_mapping.handle };
     if (ctx.syncDmaForCpu(&dma_mapping) != 0 or
         ctx.syncDmaForDevice(&dma_mapping) != 0 or
         ctx.unmapDma(&dma_mapping) != 0 or
@@ -176,6 +184,15 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
         return -1;
     }
     ctx.logInfo("EXAMPLE.R4D dma segment lifetime ok");
+    if (has_dma_ranges) {
+        if (ctx.syncDmaRangeForDevice(&stale_mapping, 0, 1) != -3 or
+            ctx.syncDmaRangeForCpu(&stale_mapping, 0, 1) != -3)
+        {
+            ctx.logError("EXAMPLE.R4D dma range FAILED stale mapping accepted");
+            return -1;
+        }
+        ctx.logInfo("EXAMPLE.R4D dma range OK bounds=actual header=checked stale=rejected");
+    }
 
     var cleanup_dma: r4os.abi.DmaBuffer = .{};
     if (ctx.allocDmaRegion(4096, 4096, &cleanup_dma) == 0) {
@@ -224,6 +241,26 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
     }
 
     return 0;
+}
+
+fn dmaRangeSmoke(ctx: *const r4os.r4dev.DriverContext, mapping: *const r4os.abi.DmaMapping) bool {
+    // The handle selects the real retained backing; a caller cannot enlarge
+    // it with forged descriptor lengths or substitute segment addresses.
+    var descriptor = r4os.abi.DmaMapping{ .handle = mapping.handle, .requested_bytes = 0xffffffff };
+    if (ctx.syncDmaRangeForDevice(&descriptor, 0, 1) != 0 or
+        ctx.syncDmaRangeForCpu(&descriptor, storage_bytes.len - 1, 1) != 0) return false;
+    for ([_][2]u32{ .{ 0, 0 }, .{ storage_bytes.len, 1 }, .{ storage_bytes.len - 1, 2 }, .{ 0xffffffff, 1 }, .{ 1, 0xffffffff } }) |extent| {
+        if (ctx.syncDmaRangeForDevice(&descriptor, extent[0], extent[1]) != -2 or
+            ctx.syncDmaRangeForCpu(&descriptor, extent[0], extent[1]) != -2) return false;
+    }
+    descriptor.size -= 1;
+    if (ctx.syncDmaRangeForDevice(&descriptor, 0, 1) != -2) return false;
+    descriptor.size += 1;
+    descriptor.version += 1;
+    if (ctx.syncDmaRangeForCpu(&descriptor, 0, 1) != -2) return false;
+    descriptor.version -= 1;
+    descriptor.handle = 0;
+    return ctx.syncDmaRangeForDevice(&descriptor, 0, 1) == -2;
 }
 
 export fn example_shutdown() callconv(.c) i32 {

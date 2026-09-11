@@ -6,7 +6,7 @@ while exercising the DriverApi v19 pin/map/sync/unmap DMA lifetime.
 
 ## Package
 
-- Version: `0.1.6`
+- Version: `0.1.7`
 - Image target: `/R4OS/DRIVERS/EXAMPLE.R4D`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`
@@ -17,6 +17,13 @@ target, and package metadata.
 The test fixture also exercises the complete DriverApi v21 USB-host v2
 descriptor, including productive callback capabilities and owner-bound
 shutdown during unregister.
+
+On DriverApi34 the same DMA lifetime fixture checks byte-range sync against
+the actual retained mapping: first/last bytes, invalid extents and headers,
+forged descriptor lengths and stale handles after unmap. Older providers
+keep the original whole-mapping fixture. No device DMA engine is submitted;
+independent bounce-buffer field preservation is tested by the kernel owner
+on the host.
 
 ## Build
 
