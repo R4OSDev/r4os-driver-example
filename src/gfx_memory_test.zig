@@ -235,6 +235,10 @@ fn bootHold(memory: anytype, ctx: *r4os.r4dev.DriverContext) bool {
     var legacy: Legacy = .{};
     if (ctx.api.gfx_display_query.?(@ptrCast(&legacy)) != a.gfx_output_ok or legacy.size != 40 or
         legacy.canary != 0x0791079107910791 or legacy.slots[0] == 0 or legacy.slots[3] == 0) return failure(ctx, @src().line);
+    const Previous = extern struct { version: u32 = 1, size: u32 = 63, slots: [6]u64 = .{0} ** 6, canary: u64 = 0x0791307913079130 };
+    var previous: Previous = .{};
+    if (ctx.api.gfx_display_query.?(@ptrCast(&previous)) != a.gfx_output_ok or previous.size != 56 or
+        previous.canary != 0x0791307913079130 or previous.slots[5] == 0 or display.table.size != 64 or display.table.prepare_held == 0) return failure(ctx, @src().line);
     var boot: a.GfxNativeBootInfo = .{};
     if (display.bootInfo(&boot) != a.gfx_output_ok or boot.state != 1 or boot.policy != 0) return failure(ctx, @src().line);
     var adapter: u32 = 0;
@@ -293,6 +297,110 @@ fn bootHold(memory: anytype, ctx: *r4os.r4dev.DriverContext) bool {
     if (display.bootInfo(&after) != a.gfx_output_ok or after.generation != boot.generation or
         after.physical_address != boot.physical_address or after.state != 1) return failure(ctx, @src().line);
     ctx.logInfo("EXAMPLE.R4D boot-display result: OK prefix=40 immutable=yes stale=rejected early-reference-release=held pixels=stable writers=restored effects=none");
+    return heldNative(memory, ctx, &display, &after, adapter);
+}
+
+// The existing opt-in fixture exercises real kernel BO/queue/display bridges.
+// These callbacks send no device commands; they temporarily model confirmation
+// and immediately restore the unchanged boot output before any app can draw.
+var held_native_probe: struct {
+    shadow: a.GfxBufferHandle = .{},
+    source: u64 = 0,
+    boot: a.GfxNativeBootInfo = .{},
+    commits: u32 = 0,
+    old_restores: u32 = 0,
+    native_restores: u32 = 0,
+    commit_result: i32 = 2,
+} = .{};
+fn heldNativeNotify(_: usize) callconv(.c) i32 { return 0; }
+fn heldNativeRestore(context: u64, _: u64, _: *const a.GfxNativeBootInfo) callconv(.c) i32 {
+    if (context == 1) held_native_probe.old_restores += 1 else held_native_probe.native_restores += 1;
+    return 1; // This fixture never changes scanout or admits GPU DMA.
+}
+fn heldNativeCommit(_: u64, _: u64, boot: *const a.GfxNativeBootInfo) callconv(.c) i32 {
+    held_native_probe.commits += 1;
+    if (boot.width != held_native_probe.boot.width or boot.height != held_native_probe.boot.height) return 0;
+    const bytes = @as(u64, boot.width) * boot.height * 4;
+    var mapped: a.GfxBufferMap = .{};
+    if (cached.bufferMap(&held_native_probe.shadow, a.gfx_buffer_map_read, 0, bytes, &mapped) != ok) return 0;
+    defer _ = cached.bufferUnmap(&mapped.lease);
+    const source: [*]const u8 = @ptrFromInt(held_native_probe.source);
+    const target: [*]const u8 = @ptrFromInt(mapped.cpu_address);
+    const row = @as(usize, boot.width) * 4;
+    for (0..boot.height) |y| {
+        if (!std.mem.eql(u8, source[y * boot.pitch ..][0..row], target[y * row ..][0..row])) return 0;
+    }
+    return held_native_probe.commit_result;
+}
+fn heldNative(memory: anytype, ctx: *r4os.r4dev.DriverContext, display: *const r4os.driver_display.Context, boot: *const a.GfxNativeBootInfo, adapter: u32) bool {
+    const queues = ctx.graphicsQueue() orelse return failure(ctx, @src().line);
+    const outputs = ctx.graphicsOutputs() orelse return failure(ctx, @src().line);
+    var binding: a.GfxBackendBinding = .{};
+    if (queues.register(&.{ .adapter_id = adapter, .milestone = a.gfx_queue_milestone_device_execution, .notify_callback = @intFromPtr(&heldNativeNotify) }, &binding) != a.gfx_queue_ok) return failure(ctx, @src().line);
+    defer _ = queues.unregister(&binding, 1);
+    var publication = a.GfxOutputPublication{ .backend = binding, .info = .{
+        .identity = .{ .adapter_id = adapter, .connector_id = 1, .device_generation = binding.device_generation },
+        .connector_kind = a.gfx_output_kind_virtual, .flags = a.gfx_output_flag_connected,
+        .mode_count = 1, .preferred_mode_id = 1, .possible_heads = 1, .possible_planes = 1, .possible_plls = 1,
+        .limits = .{ .head_mask = 1, .plane_mask = 1, .pll_mask = 1, .max_width = boot.width, .max_height = boot.height } } };
+    publication.modes[0] = .{ .mode_id = 1, .width = boot.width, .height = boot.height, .flags = a.gfx_output_mode_geometry_only | a.gfx_output_mode_preferred };
+    var output: a.GfxOutputId = .{};
+    if (outputs.publish(&publication, &output) != a.gfx_output_ok) return failure(ctx, @src().line);
+    const bytes = @as(u64, boot.pitch) * boot.height;
+    var snapshot: a.GfxBufferReference = .{};
+    if (memory.bufferCreate(&.{ .byte_length = bytes, .usage = a.gfx_buffer_usage_cpu_read | a.gfx_buffer_usage_cpu_write }, &snapshot) != ok) return failure(ctx, @src().line);
+    defer if (snapshot.reference.id != 0) { _ = memory.bufferRelease(&snapshot.reference); };
+    var shadow: a.GfxBufferReference = .{};
+    if (memory.bufferCreate(&.{ .byte_length = @as(u64, boot.width) * boot.height * 4, .width = boot.width, .height = boot.height,
+        .format = a.gfx_buffer_format_xrgb8888, .plane_count = 1, .plane_pitches = .{ @as(u64, boot.width) * 4, 0, 0, 0 },
+        .usage = a.gfx_buffer_usage_cpu_read | a.gfx_buffer_usage_cpu_write | a.gfx_buffer_usage_transfer_source }, &shadow) != ok) return failure(ctx, @src().line);
+    defer if (shadow.reference.id != 0) { _ = memory.bufferRelease(&shadow.reference); };
+    var held: a.GfxNativeState = .{};
+    if (display.bootHold(&.{ .adapter_id = adapter, .generation = boot.generation, .reference = snapshot.reference,
+        .context = 1, .restore_callback = @intFromPtr(&heldNativeRestore) }, &held) != a.gfx_output_ok or held.retained != 1) return failure(ctx, @src().line);
+    defer if (held.retained != 0) { var cleanup: a.GfxNativeState = .{}; _ = display.bootFinish(held.generation, 2, &cleanup); };
+    var read: a.GfxBufferMap = .{};
+    if (memory.bufferMap(&snapshot.reference, a.gfx_buffer_map_read, 0, bytes, &read) != ok) return failure(ctx, @src().line);
+    defer _ = memory.bufferUnmap(&read.lease);
+    held_native_probe = .{ .shadow = shadow.reference, .source = read.cpu_address, .boot = boot.* };
+    if (memory.bufferRelease(&snapshot.reference) != ok) return failure(ctx, @src().line);
+    snapshot = .{};
+    var candidate = a.GfxNativeRegistration{ .backend = binding, .output = output, .reference = shadow.reference,
+        .context = 2, .commit_callback = @intFromPtr(&heldNativeCommit), .restore_callback = @intFromPtr(&heldNativeRestore) };
+    @memcpy(candidate.name[0..7], "EXAMPLE");
+    var state: a.GfxNativeState = .{};
+    const short_native: extern struct { version: u32 = 1, size: u32 = 8 } align(8) = .{};
+    if (display.prepareHeld(@ptrCast(&short_native), held.generation, &state) != a.gfx_output_error_invalid or
+        display.prepare(@ptrCast(&short_native), &state) != a.gfx_output_error_invalid) return failure(ctx, @src().line);
+    if (display.prepareHeld(&candidate, held.generation, &state) != a.gfx_output_error_invalid or
+        display.bootFinish(held.generation, 1, &state) != a.gfx_output_ok) return failure(ctx, @src().line);
+    if (display.prepare(&candidate, &state) != a.gfx_output_error_busy or
+        display.prepareHeld(&candidate, held.generation + 1, &state) != a.gfx_output_error_stale) return failure(ctx, @src().line);
+    var native_pending = false;
+    defer if (native_pending) {
+        var current: a.GfxNativeBootInfo = .{};
+        if (display.bootInfo(&current) == a.gfx_output_ok) _ = display.transition(if (current.state == 2) held.generation else current.generation, if (current.state == 2) 1 else 2, &state);
+    };
+    if (display.prepareHeld(&candidate, held.generation, &state) != a.gfx_output_ok or state.generation != held.generation) return failure(ctx, @src().line);
+    native_pending = true;
+    if (display.bootFinish(held.generation, 2, &state) != a.gfx_output_error_busy or
+        display.transition(held.generation, 1, &state) != a.gfx_output_ok or state.outcome != a.gfx_output_outcome_old_preserved or state.retained != 1 or state.state != 2) return failure(ctx, @src().line);
+    native_pending = false;
+    if (display.prepareHeld(&candidate, held.generation, &state) != a.gfx_output_ok) return failure(ctx, @src().line);
+    native_pending = true;
+    if (display.transition(held.generation, 0, &state) != a.gfx_output_ok or state.outcome != a.gfx_output_outcome_old_preserved or state.retained != 1 or state.state != 2) return failure(ctx, @src().line);
+    native_pending = false;
+    if (display.prepareHeld(&candidate, held.generation, &state) != a.gfx_output_ok) return failure(ctx, @src().line);
+    native_pending = true;
+    held_native_probe.commit_result = 1;
+    if (display.transition(held.generation, 0, &state) != a.gfx_output_ok or state.outcome != a.gfx_output_outcome_applied or state.state != a.display_state_software_native) return failure(ctx, @src().line);
+    if (memory.bufferRelease(&shadow.reference) != ok) return failure(ctx, @src().line);
+    shadow = .{};
+    if (display.transition(state.generation, 2, &state) != a.gfx_output_ok or state.retained != 0 or state.state != a.display_state_bootfb or
+        held_native_probe.commits != 2 or held_native_probe.native_restores != 1 or held_native_probe.old_restores != 0) return failure(ctx, @src().line);
+    native_pending = false;
+    held.retained = 0;
+    ctx.logInfo("EXAMPLE.R4D held-native result: OK prefix=56 tail=64 stale=rejected abort=held old-preserved=held RAM-shadow=exact recovery=native references=balanced GPU-commands=none");
     return true;
 }
 
