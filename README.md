@@ -6,7 +6,7 @@ while exercising the DriverApi v19 pin/map/sync/unmap DMA lifetime.
 
 ## Package
 
-- Version: `0.1.12`
+- Version: `0.1.13`
 - Image target: `/R4OS/DRIVERS/EXAMPLE.R4D`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`
@@ -103,3 +103,8 @@ in Docs/Drivers/GrafikSpeicher07911.json.
 112-byte R4D prefix, native reservations/tickets and independent system
 collection through real Init/Work/closing Shutdown. Synthetic backing only;
 focused SMP4 passes. Evidence: owned_vram_checkpoint in GrafikSpeicher07911.json.
+
+0.79.11 surface storage: the existing memory fixture now carries a two-plane
+opaque descriptor through actual Init/Work/import/describe/closing cleanup.
+CPU creation/mapping is rejected; focused SMP4 passes. Synthetic backing
+only. Evidence: surface_layout_checkpoint in GrafikSpeicher07911.json.

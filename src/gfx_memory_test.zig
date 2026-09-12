@@ -17,6 +17,8 @@ var closing_armed = false;
 var closing_owned: a.GfxOwnedBufferReservation = .{};
 var closing_owned_live: a.GfxBufferReference = .{};
 const owned_descriptor: a.GfxBufferDescriptor = .{ .byte_length = 4091, .alignment = 65536, .usage = 12,
+    .modifier = 0x0300000000606010, .width = 5, .height = 3, .format = 0x3231564e, .plane_count = 2,
+    .plane_offsets = .{0,2048,0,0}, .plane_pitches = .{64,64,0,0},
     .location = a.gfx_buffer_location_device_local, .adapter_id = 0xFFFF, .device_generation = 0x300000007 };
 const small_bytes = 3 * 4096;
 const small_descriptor: a.GfxBufferDescriptor = .{
@@ -38,7 +40,7 @@ pub fn run(ctx: *r4os.r4dev.DriverContext) bool {
     old.version = 1; old.size = 113;
     if (ctx.api.gfx_memory_query.?(old) != ok or old.size != 112 or !std.mem.allEqual(u8, &prefix.canary, 0xA5)) return failure(ctx, @src().line);
     if (!exerciseOwned(&memory, ctx)) return failure(ctx, @src().line);
-    ctx.logInfo("EXAMPLE.R4D gfx-owned init: OK prefix=112 canary=preserved exact-tickets=balanced");
+    ctx.logInfo("EXAMPLE.R4D gfx-owned init: OK prefix=112 canary=preserved exact-tickets=balanced opaque-layout=preserved");
     if (!bootHold(&memory, ctx)) return failure(ctx, @src().line);
     if (!workHandoff(ctx)) return failure(ctx, @src().line);
     var after: a.GfxBufferStats = .{};
@@ -195,11 +197,16 @@ fn exerciseOwned(memory: *const r4os.driver_memory.Context, ctx: *r4os.r4dev.Dri
     var cpu: a.GfxBufferMap = .{};
     var gpu: a.GfxDeviceLease = .{};
     var release: a.GfxOwnedBufferRelease = .{};
+    var described: a.GfxBufferDescriptor = .{};
+    if (memory.bufferCreate(&owned_descriptor, &reference) != a.gfx_buffer_error_unsupported) return failure(ctx, @src().line);
     if (memory.bufferReserve(&owned_descriptor, 0x100000079, &ticket) != ok or ticket.allocation_bytes != 65536 or ticket.driver_generation == 0) return failure(ctx, @src().line);
     if (memory.bufferImport(&ticket.reference, &imported) != a.gfx_buffer_error_closed or memory.bufferAbort(&ticket, 0) != a.gfx_buffer_error_busy) return failure(ctx, @src().line);
     var forged = ticket; forged.cookie += 1;
     if (memory.bufferCommit(&forged, &reference) != a.gfx_buffer_error_stale or memory.bufferCommit(&ticket, &reference) != ok or
         memory.bufferImport(&reference.reference, &imported) != ok or memory.bufferMap(&reference.reference, 0, 0, 1, &cpu) != a.gfx_buffer_error_unsupported) return failure(ctx, @src().line);
+    if (memory.bufferDescribe(&imported.reference, &described) != ok or described.modifier != owned_descriptor.modifier or
+        described.byte_length != 4091 or described.plane_count != 2 or described.plane_offsets[1] != 2048 or described.plane_pitches[1] != 64 or
+        described.driver_owner != ticket.driver_owner or described.device_generation != owned_descriptor.device_generation) return failure(ctx, @src().line);
     if (memory.deviceAcquire(&reference.reference, &.{ .byte_length = 4091, .adapter_id = owned_descriptor.adapter_id,
         .device_generation = owned_descriptor.device_generation, .gpu_virtual_address = 0x3000000000, .access = 1, .address_space = 1 }, &gpu) != ok) return failure(ctx, @src().line);
     if (memory.bufferRelease(&reference.reference) != ok or memory.bufferTakeRelease(owned_descriptor.adapter_id, owned_descriptor.device_generation, &release) != a.gfx_buffer_error_busy or
