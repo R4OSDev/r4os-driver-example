@@ -14,6 +14,10 @@ var closing_dma: a.GfxDeviceLease = .{};
 var closing_gpu: a.GfxDeviceLease = .{};
 var closing_before: a.GfxBufferStats = .{};
 var closing_armed = false;
+var closing_owned: a.GfxOwnedBufferReservation = .{};
+var closing_owned_live: a.GfxBufferReference = .{};
+const owned_descriptor: a.GfxBufferDescriptor = .{ .byte_length = 4091, .alignment = 65536, .usage = 12,
+    .location = a.gfx_buffer_location_device_local, .adapter_id = 0xFFFF, .device_generation = 0x300000007 };
 const small_bytes = 3 * 4096;
 const small_descriptor: a.GfxBufferDescriptor = .{
     .byte_length = small_bytes,
@@ -28,6 +32,13 @@ pub fn run(ctx: *r4os.r4dev.DriverContext) bool {
     cached = memory;
     var before: a.GfxBufferStats = .{};
     if (memory.bufferStats(&before) != ok) return failure(ctx, @src().line);
+    const Prefix = extern struct { bytes: [112]u8 align(8), canary: [16]u8 };
+    var prefix: Prefix = undefined; @memset(std.mem.asBytes(&prefix), 0xA5);
+    const old: *a.GfxDriverMemoryApi = @ptrCast(&prefix);
+    old.version = 1; old.size = 113;
+    if (ctx.api.gfx_memory_query.?(old) != ok or old.size != 112 or !std.mem.allEqual(u8, &prefix.canary, 0xA5)) return failure(ctx, @src().line);
+    if (!exerciseOwned(&memory, ctx)) return failure(ctx, @src().line);
+    ctx.logInfo("EXAMPLE.R4D gfx-owned init: OK prefix=112 canary=preserved exact-tickets=balanced");
     if (!bootHold(&memory, ctx)) return failure(ctx, @src().line);
     if (!workHandoff(ctx)) return failure(ctx, @src().line);
     var after: a.GfxBufferStats = .{};
@@ -82,6 +93,8 @@ fn memoryWork(_: usize) callconv(.c) i32 {
     data[0] = 0x71;
     data[small_bytes - 1] = 0xE4;
     if (memory.bufferUnmap(&map.lease) != ok or !exercise(&memory, &ctx)) return failureCode(&ctx, @src().line);
+    if (!exerciseOwned(&memory, &ctx)) return failureCode(&ctx, @src().line);
+    ctx.logInfo("EXAMPLE.R4D gfx-owned work: OK imported-and-GPU=retained system-collect=independent");
     return 0;
 }
 
@@ -98,6 +111,9 @@ pub fn prepareClose() bool {
     if (cached.bufferMap(&closing.reference, 0, 0, small_bytes, &closing_cpu) != ok) return false;
     if (cached.deviceAcquire(&closing.reference, &.{ .adapter_id = 0xFFFF, .device_generation = 1, .byte_length = small_bytes, .access = 4 }, &closing_dma) != ok) return false;
     if (cached.deviceAcquire(&closing.reference, &.{ .adapter_id = 0xFFFF, .device_generation = 1, .byte_length = small_bytes, .gpu_virtual_address = 0x2000000000, .access = 3, .address_space = 1 }, &closing_gpu) != ok) return false;
+    var owned: a.GfxOwnedBufferReservation = .{};
+    if (cached.bufferReserve(&owned_descriptor, 42, &closing_owned) != ok or cached.bufferReserve(&owned_descriptor, 43, &owned) != ok or
+        cached.bufferCommit(&owned, &closing_owned_live) != ok) return false;
     closing_armed = true;
     return true;
 }
@@ -149,6 +165,17 @@ pub fn shutdown(ctx: *r4os.r4dev.DriverContext) i32 {
         closing_dma = .{};
     }
     if (closing_armed) {
+        var denied: a.GfxOwnedBufferReservation = .{};
+        var reference: a.GfxBufferReference = .{};
+        var release: a.GfxOwnedBufferRelease = .{};
+        if (cached.bufferReserve(&owned_descriptor, 44, &denied) != a.gfx_buffer_error_closed or
+            cached.bufferCommit(&closing_owned, &reference) != a.gfx_buffer_error_closed or
+            cached.bufferAbort(&closing_owned, 0) != a.gfx_buffer_error_busy or cached.bufferAbort(&closing_owned, 1) != ok or
+            cached.bufferRelease(&closing_owned_live.reference) != ok or
+            cached.bufferTakeRelease(owned_descriptor.adapter_id, owned_descriptor.device_generation, &release) != ok or
+            cached.bufferFinishRelease(&release, 0) != a.gfx_buffer_error_busy or cached.bufferFinishRelease(&release, 1) != ok) return -1;
+        closing_owned = .{}; closing_owned_live = .{};
+        ctx.logInfo("EXAMPLE.R4D gfx-owned close: OK admission=closed abort-and-retire=balanced");
         var after: a.GfxBufferStats = .{};
         if (cached.collect() != ok or cached.bufferStats(&after) != ok or after.objects != closing_before.objects or
             after.references != closing_before.references or after.leases != closing_before.leases or
@@ -157,6 +184,36 @@ pub fn shutdown(ctx: *r4os.r4dev.DriverContext) i32 {
         closing_armed = false;
     }
     return 0;
+}
+
+// Synthetic opaque backing only: no native allocation is sent to hardware.
+// Both Init and ordinary Work traverse the real kernel ownership API.
+fn exerciseOwned(memory: *const r4os.driver_memory.Context, ctx: *r4os.r4dev.DriverContext) bool {
+    var ticket: a.GfxOwnedBufferReservation = .{};
+    var reference: a.GfxBufferReference = .{};
+    var imported: a.GfxBufferReference = .{};
+    var cpu: a.GfxBufferMap = .{};
+    var gpu: a.GfxDeviceLease = .{};
+    var release: a.GfxOwnedBufferRelease = .{};
+    if (memory.bufferReserve(&owned_descriptor, 0x100000079, &ticket) != ok or ticket.allocation_bytes != 65536 or ticket.driver_generation == 0) return failure(ctx, @src().line);
+    if (memory.bufferImport(&ticket.reference, &imported) != a.gfx_buffer_error_closed or memory.bufferAbort(&ticket, 0) != a.gfx_buffer_error_busy) return failure(ctx, @src().line);
+    var forged = ticket; forged.cookie += 1;
+    if (memory.bufferCommit(&forged, &reference) != a.gfx_buffer_error_stale or memory.bufferCommit(&ticket, &reference) != ok or
+        memory.bufferImport(&reference.reference, &imported) != ok or memory.bufferMap(&reference.reference, 0, 0, 1, &cpu) != a.gfx_buffer_error_unsupported) return failure(ctx, @src().line);
+    if (memory.deviceAcquire(&reference.reference, &.{ .byte_length = 4091, .adapter_id = owned_descriptor.adapter_id,
+        .device_generation = owned_descriptor.device_generation, .gpu_virtual_address = 0x3000000000, .access = 1, .address_space = 1 }, &gpu) != ok) return failure(ctx, @src().line);
+    if (memory.bufferRelease(&reference.reference) != ok or memory.bufferTakeRelease(owned_descriptor.adapter_id, owned_descriptor.device_generation, &release) != a.gfx_buffer_error_busy or
+        memory.bufferRelease(&imported.reference) != ok or memory.bufferTakeRelease(owned_descriptor.adapter_id, owned_descriptor.device_generation, &release) != a.gfx_buffer_error_busy or
+        memory.deviceRelease(&gpu, 0) != a.gfx_buffer_error_busy or memory.deviceRelease(&gpu, 1) != ok) return failure(ctx, @src().line);
+    var before: a.GfxBufferStats = .{}; var after: a.GfxBufferStats = .{};
+    if (memory.bufferStats(&before) != ok or memory.bufferCreate(&small_descriptor, &reference) != ok or memory.bufferRelease(&reference.reference) != ok or
+        memory.bufferStats(&after) != ok or after.committed_bytes != before.committed_bytes or after.objects != before.objects) return failure(ctx, @src().line);
+    if (memory.bufferTakeRelease(owned_descriptor.adapter_id, owned_descriptor.device_generation + 1, &release) != a.gfx_buffer_error_busy or
+        memory.bufferTakeRelease(owned_descriptor.adapter_id, owned_descriptor.device_generation, &release) != ok or memory.bufferFinishRelease(&release, 0) != a.gfx_buffer_error_busy) return failure(ctx, @src().line);
+    var wrong = release; wrong.byte_length -= 1;
+    if (memory.bufferFinishRelease(&wrong, 1) != a.gfx_buffer_error_stale or memory.bufferFinishRelease(&release, 1) != ok or
+        memory.bufferFinishRelease(&release, 1) != a.gfx_buffer_error_stale) return failure(ctx, @src().line);
+    return true;
 }
 
 fn noRecovery(_: u64, _: u64, _: *const a.GfxNativeBootInfo) callconv(.c) i32 {
