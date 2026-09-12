@@ -338,9 +338,14 @@ fn heldNative(memory: anytype, ctx: *r4os.r4dev.DriverContext, display: *const r
     var binding: a.GfxBackendBinding = .{};
     if (queues.register(&.{ .adapter_id = adapter, .milestone = a.gfx_queue_milestone_device_execution, .notify_callback = @intFromPtr(&heldNativeNotify) }, &binding) != a.gfx_queue_ok) return failure(ctx, @src().line);
     defer _ = queues.unregister(&binding, 1);
+    var receiver_source: a.GfxReceiverSource = .{};
+    if (outputs.registerSource(adapter, &receiver_source) != a.gfx_output_ok) return failure(ctx, @src().line);
+    defer _ = outputs.closeSource(&receiver_source);
+    const receiver: a.GfxReceiverInfo = .{ .connector_id = 1, .flags = a.gfx_output_flag_connection_unknown };
+    if (outputs.replaceReceivers(&.{ .source = receiver_source, .sequence = 1, .count = 1, .receivers = @intFromPtr(&receiver) }) != a.gfx_output_ok) return failure(ctx, @src().line);
     var publication = a.GfxOutputPublication{ .backend = binding, .info = .{
         .identity = .{ .adapter_id = adapter, .connector_id = 1, .device_generation = binding.device_generation },
-        .connector_kind = a.gfx_output_kind_virtual, .flags = a.gfx_output_flag_connected,
+        .connector_kind = a.gfx_output_kind_virtual, .flags = a.gfx_output_flag_connection_unknown,
         .mode_count = 1, .preferred_mode_id = 1, .possible_heads = 1, .possible_planes = 1, .possible_plls = 1,
         .limits = .{ .head_mask = 1, .plane_mask = 1, .pll_mask = 1, .max_width = boot.width, .max_height = boot.height } } };
     publication.modes[0] = .{ .mode_id = 1, .width = boot.width, .height = boot.height, .flags = a.gfx_output_mode_geometry_only | a.gfx_output_mode_preferred };
@@ -355,6 +360,12 @@ fn heldNative(memory: anytype, ctx: *r4os.r4dev.DriverContext, display: *const r
         .format = a.gfx_buffer_format_xrgb8888, .plane_count = 1, .plane_pitches = .{ @as(u64, boot.width) * 4, 0, 0, 0 },
         .usage = a.gfx_buffer_usage_cpu_read | a.gfx_buffer_usage_cpu_write | a.gfx_buffer_usage_transfer_source }, &shadow) != ok) return failure(ctx, @src().line);
     defer if (shadow.reference.id != 0) { _ = memory.bufferRelease(&shadow.reference); };
+    var candidate = a.GfxNativeRegistration{ .backend = binding, .output = output, .reference = shadow.reference,
+        .context = 2, .commit_callback = @intFromPtr(&heldNativeCommit), .restore_callback = @intFromPtr(&heldNativeRestore) };
+    @memcpy(candidate.name[0..7], "EXAMPLE");
+    var state: a.GfxNativeState = .{};
+    if (display.prepare(&candidate, &state) != a.gfx_output_error_stale) return failure(ctx, @src().line);
+    if (outputs.replaceReceivers(&.{ .source = receiver_source, .sequence = 2, .count = 1, .receivers = @intFromPtr(&receiver) }) != a.gfx_output_ok) return failure(ctx, @src().line);
     var held: a.GfxNativeState = .{};
     if (display.bootHold(&.{ .adapter_id = adapter, .generation = boot.generation, .reference = snapshot.reference,
         .context = 1, .restore_callback = @intFromPtr(&heldNativeRestore) }, &held) != a.gfx_output_ok or held.retained != 1) return failure(ctx, @src().line);
@@ -365,16 +376,13 @@ fn heldNative(memory: anytype, ctx: *r4os.r4dev.DriverContext, display: *const r
     held_native_probe = .{ .shadow = shadow.reference, .source = read.cpu_address, .boot = boot.* };
     if (memory.bufferRelease(&snapshot.reference) != ok) return failure(ctx, @src().line);
     snapshot = .{};
-    var candidate = a.GfxNativeRegistration{ .backend = binding, .output = output, .reference = shadow.reference,
-        .context = 2, .commit_callback = @intFromPtr(&heldNativeCommit), .restore_callback = @intFromPtr(&heldNativeRestore) };
-    @memcpy(candidate.name[0..7], "EXAMPLE");
-    var state: a.GfxNativeState = .{};
     const short_native: extern struct { version: u32 = 1, size: u32 = 8 } align(8) = .{};
     if (display.prepareHeld(@ptrCast(&short_native), held.generation, &state) != a.gfx_output_error_invalid or
         display.prepare(@ptrCast(&short_native), &state) != a.gfx_output_error_invalid) return failure(ctx, @src().line);
     if (display.prepareHeld(&candidate, held.generation, &state) != a.gfx_output_error_invalid or
         display.bootFinish(held.generation, 1, &state) != a.gfx_output_ok) return failure(ctx, @src().line);
-    if (display.prepare(&candidate, &state) != a.gfx_output_error_busy or
+    // Unknown presence rejects ordinary prepare before it reaches the hold.
+    if (display.prepare(&candidate, &state) != a.gfx_output_error_stale or
         display.prepareHeld(&candidate, held.generation + 1, &state) != a.gfx_output_error_stale) return failure(ctx, @src().line);
     var native_pending = false;
     defer if (native_pending) {
@@ -400,7 +408,7 @@ fn heldNative(memory: anytype, ctx: *r4os.r4dev.DriverContext, display: *const r
         held_native_probe.commits != 2 or held_native_probe.native_restores != 1 or held_native_probe.old_restores != 0) return failure(ctx, @src().line);
     native_pending = false;
     held.retained = 0;
-    ctx.logInfo("EXAMPLE.R4D held-native result: OK prefix=56 tail=64 stale=rejected abort=held old-preserved=held RAM-shadow=exact recovery=native references=balanced GPU-commands=none");
+    ctx.logInfo("EXAMPLE.R4D held-native result: OK prefix=56 tail=64 stale=rejected receiver=unknown promotion=preserved ordinary-prepare=rejected abort=held old-preserved=held RAM-shadow=exact recovery=native references=balanced GPU-commands=none");
     return true;
 }
 
