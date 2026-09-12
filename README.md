@@ -6,7 +6,7 @@ while exercising the DriverApi v19 pin/map/sync/unmap DMA lifetime.
 
 ## Package
 
-- Version: `0.1.10`
+- Version: `0.1.11`
 - Image target: `/R4OS/DRIVERS/EXAMPLE.R4D`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`
@@ -93,3 +93,8 @@ Work after producer exit, exact offset/DMA correspondence, retained device
 leases and balanced release after the timer IRQ. No GPU commands run.
 DISPLAYD exports these records; the focused SMP4 run injects one key and
 uses no guest networking. Evidence: Docs/Drivers/GrafikSpeicher07911.json.
+
+0.79.11 residency boundary: the existing queue fixture uses 4091-byte BOs
+and 4079-byte offset jobs, while mapping-only references retain full 4096-byte
+DMA/GPU pages. Focused SMP4 passes; evidence: native_buffer_checkpoint
+in Docs/Drivers/GrafikSpeicher07911.json.

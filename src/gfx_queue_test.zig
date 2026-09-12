@@ -130,7 +130,7 @@ fn retainMappings(ctx: *const r4os.r4dev.DriverContext, memory: *const r4os.driv
             mapping.reference.flags != a.gfx_buffer_reference_mapping_only or
             !std.meta.eql(mapping.reference.buffer, if (index == 0) held.source_buffer else held.target_buffer)) return false;
         var descriptor: a.GfxBufferDescriptor = .{};
-        if (memory.bufferDescribe(&mapping.reference.reference, &descriptor) != a.gfx_buffer_result_ok or descriptor.byte_length != 4096) return false;
+        if (memory.bufferDescribe(&mapping.reference.reference, &descriptor) != a.gfx_buffer_result_ok or descriptor.byte_length != 4091) return false;
         var denied: a.GfxBufferMap = .{};
         if (memory.bufferMap(&mapping.reference.reference, 0, 0, 4096, &denied) != a.gfx_buffer_error_unsupported or
             memory.bufferMap(&mapping.reference.reference, 1, 0, 4096, &denied) != a.gfx_buffer_error_unsupported or
@@ -151,9 +151,9 @@ fn retainMappings(ctx: *const r4os.r4dev.DriverContext, memory: *const r4os.driv
             memory.deviceRelease(&mapping.dma, 0) != a.gfx_buffer_error_busy) return false;
     }
     ctx.logInfo(if (require_producer_exit)
-        "EXAMPLE.R4D gfx-queue retained: OK producer=closed work=ordinary same-BO=2 extents=exact maps=4"
+        "EXAMPLE.R4D gfx-queue retained: OK producer=closed work=ordinary same-BO=2 extents=exact maps=4 logical=4091 mapped=4096"
     else
-        "EXAMPLE.R4D gfx-queue retained: OK work=ordinary same-BO=2 extents=exact maps=4");
+        "EXAMPLE.R4D gfx-queue retained: OK work=ordinary same-BO=2 extents=exact maps=4 logical=4091 mapped=4096");
     return true;
 }
 fn mappingWork(_: usize) callconv(.c) i32 {
