@@ -11,6 +11,7 @@ var work_stress_started: bool = false;
 var work_stress_mode: bool = false;
 var gfx_queue_mode = false;
 var gfx_output_mode = false;
+var gfx_memory_mode = false;
 var cleanup_stress_started: bool = false;
 var storage_state: ExampleStorageState = .{};
 var usb_host_state: ExampleUsbHostState = .{};
@@ -111,8 +112,14 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
         return if (@import("gfx_queue_test.zig").init(&ctx)) 0 else -6;
     }
     if (optionEquals(mode, "gfx-memory-test")) {
+        gfx_memory_mode = true;
         const ok = @import("gfx_memory_test.zig").run(&ctx);
         ctx.logInfo(if (ok) "EXAMPLE.R4D gfx-memory result: OK bytes=83886080 segments=20480 submission=none" else "EXAMPLE.R4D gfx-memory result: FAILED");
+        if (ok and optionEquals(ctx.getOption("EXAMPLE", "memory-close"), "yes")) {
+            if (!@import("gfx_memory_test.zig").prepareClose()) return -6;
+            ctx.logInfo("EXAMPLE.R4D gfx-memory deliberate init rejection: code=-79 cleanup-probe");
+            return -79;
+        }
         return if (ok) 0 else -6;
     }
     const workqueue_stress = optionEquals(mode, "workqueue-stress");
@@ -264,6 +271,12 @@ fn dmaRangeSmoke(ctx: *const r4os.r4dev.DriverContext, mapping: *const r4os.abi.
 }
 
 export fn example_shutdown() callconv(.c) i32 {
+    if (gfx_memory_mode) {
+        var ctx = r4os.r4dev.DriverContext.init(driver_api orelse return -1);
+        const rc = @import("gfx_memory_test.zig").shutdown(&ctx);
+        if (rc != 0) return rc;
+        gfx_memory_mode = false;
+    }
     if (gfx_output_mode) {
         const ctx = r4os.r4dev.DriverContext.init(driver_api orelse return -1);
         const rc = @import("gfx_output_test.zig").shutdown(&ctx);

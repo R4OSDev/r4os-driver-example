@@ -6,7 +6,7 @@ while exercising the DriverApi v19 pin/map/sync/unmap DMA lifetime.
 
 ## Package
 
-- Version: `0.1.7`
+- Version: `0.1.9`
 - Image target: `/R4OS/DRIVERS/EXAMPLE.R4D`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`
@@ -58,6 +58,15 @@ concurrent CPU maps, rejected forged/incomplete completions and balanced
 release. This mode performs no GPU submission and replaces the ordinary
 EXAMPLE fixtures for that boot. Native GPU page tables, VRAM and scanout are
 outside this memory-contract test.
+
+On Kernel 0.1.154 the same memory fixture executes its 80-MB/DMA path in
+ordinary Work, imports the Init buffer without copying, checks returned and
+cached MMIO denial and rejects BO access from a real dedicated Task. Use
+`GRAPHICS=AUTO` for its existing immutable boot-image probe. The optional
+`OPTION EXAMPLE memory-close=yes` deliberately returns init code -79 after
+holding small CPU/DMA/GPU residency leases. The real failed-load Shutdown
+then checks closed admission and balanced cached-table cleanup. This is an
+explicit test fixture, with no GPU submission or added recurring gate.
 
 `OPTION EXAMPLE mode=gfx-queue-test` selects the DriverApi v26 queue fixture.
 It registers a diagnostic adapter (0xFFFF0006), holds real BO leases and
