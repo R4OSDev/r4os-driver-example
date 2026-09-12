@@ -6,7 +6,7 @@ while exercising the DriverApi v19 pin/map/sync/unmap DMA lifetime.
 
 ## Package
 
-- Version: `0.1.9`
+- Version: `0.1.10`
 - Image target: `/R4OS/DRIVERS/EXAMPLE.R4D`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`
@@ -86,3 +86,10 @@ existing desktop activity wake, with no GPU, physical hotplug or HDMI I/O.
 The driver uses manifest-declared compiled `r4gfx_edid`/`r4gfx_outputs`
 modules; shared PS7 orchestration in SDK/Tools/BuildModule.ps1 builds them
 from local Settings.R4S mappings on Windows and Linux.
+
+Queue resource handoff (0.79.11): the existing explicit queue fixture now
+checks the legacy 56-byte canary, mapping-only BO references from ordinary
+Work after producer exit, exact offset/DMA correspondence, retained device
+leases and balanced release after the timer IRQ. No GPU commands run.
+DISPLAYD exports these records; the focused SMP4 run injects one key and
+uses no guest networking. Evidence: Docs/Drivers/GrafikSpeicher07911.json.
