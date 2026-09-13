@@ -12,6 +12,6 @@ pub fn build(b: *std.Build) void {
     const libraries_build = b.lazyImport(@This(), "r4os_libraries") orelse return;
     const libraries = b.dependencyFromBuildZig(libraries_build, .{});
     _ = sdk.addR4MFWithOptions(b.path("module.R4MF"), .{
-        .zig_module_roots = &.{ libraries.namedLazyPath("r4gfx_edid"), libraries.namedLazyPath("r4gfx_outputs") },
+        .zig_module_roots = &.{ libraries.namedLazyPath("r4gfx_edid"), libraries.namedLazyPath("r4gfx_outputs"), libraries.namedLazyPath("r4nv_zig_binding") },
     });
 }

@@ -6,7 +6,9 @@ const epoch = 0x079190001;
 var memory: r4os.driver_memory.Context = undefined;
 var provider: a.GfxBufferHandle = .{};
 var cookie: u64 = 0;
+var context: r4os.r4dev.DriverContext = undefined;
 pub fn init(ctx: *const r4os.r4dev.DriverContext) bool {
+    context = ctx.*;
     memory = ctx.memory() orelse return false;
     if (memory.nativeRegister(&.{ .adapter_id = adapter, .memory_generation = epoch, .notify = @intFromPtr(&work) }, &provider) != 1) return false;
     ctx.logInfo("EXAMPLE.R4D gfx-allocation: ready synthetic-backing no-GPU");
@@ -28,6 +30,7 @@ fn work(_: usize) callconv(.c) i32 {
         const rc = memory.nativeTake(&provider, &job);
         if (rc == a.gfx_buffer_error_busy) return 0;
         if (rc != 1) return -1;
+        if (!@import("gfx_render_test.zig").init(&context, adapter, epoch)) return -1;
         const input = job.allocation;
         if (input.kind != 1 or input.format != a.gfx_buffer_format_xrgb8888 or input.width != 5 or input.height != 3 or input.layout != 0) {
             if (memory.nativeComplete(&provider, &job.request, a.gfx_buffer_error_unsupported, &.{}) != 1) return -1;
@@ -43,6 +46,7 @@ fn work(_: usize) callconv(.c) i32 {
     return 0;
 }
 pub fn shutdown() i32 {
+    if (!@import("gfx_render_test.zig").shutdown()) return -1;
     if (!collect()) return -1;
     if (provider.id != 0) {
         const rc = memory.nativeUnregister(&provider);
