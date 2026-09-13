@@ -6,7 +6,7 @@ while exercising the DriverApi v19 pin/map/sync/unmap DMA lifetime.
 
 ## Package
 
-- Version: `0.1.13`
+- Version: `0.1.18`
 - Image target: `/R4OS/DRIVERS/EXAMPLE.R4D`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`
@@ -24,6 +24,12 @@ forged descriptor lengths and stale handles after unmap. Older providers
 keep the original whole-mapping fixture. No device DMA engine is submitted;
 independent bounce-buffer field preservation is tested by the kernel owner
 on the host.
+
+`OPTION EXAMPLE mode=gfx-allocation-test` selects the bounded native-allocation
+fixture used by DISPLAYD `/BUFFERS`. It registers a synthetic BO provider,
+claims requests through real Driver Work, transfers common BO references and
+collects exact release tickets. It sends no GPU or DMA operation; this mode
+is only for the existing SMP4 diagnostic run.
 
 ## Build
 
