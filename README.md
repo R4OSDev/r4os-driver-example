@@ -114,3 +114,12 @@ focused SMP4 passes. Evidence: owned_vram_checkpoint in GrafikSpeicher07911.json
 opaque descriptor through actual Init/Work/import/describe/closing cleanup.
 CPU creation/mapping is rejected; focused SMP4 passes. Synthetic backing
 only. Evidence: surface_layout_checkpoint in GrafikSpeicher07911.json.
+
+`OPTION EXAMPLE mode=owned-work-test` selects the bounded DriverApi36
+execution-context probe in 0.1.20. A real parallel driver task verifies that
+direct memory/display access and ordinary-Work MMIO access remain denied.
+An owned callback returns BUSY without execution while Init holds the guard;
+after Init returns it obtains memory/display admission and creates/releases
+one CPU BO. All request state remains resident until completion and thread
+join. This optional case uses the existing EXAMPLE fixture and performs no
+device MMIO, GPU commands or physical display changes.
