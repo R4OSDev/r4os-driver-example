@@ -56,7 +56,7 @@ Zentrale Cleanup-/Quiesce-Probe waehrend des Boot-Treiberplans:
 
     DRIVER=EXAMPLE
     OPTION EXAMPLE mode=workqueue-cleanup-stress
-    DRVDIAG /STRESS
+    SPECTRA CHECK WORK /STRESS
 
 Nach der Lebenszyklusprobe liefert Init absichtlich Fehler -8. Der dadurch
 ausgeloeste Failed-Load-Cleanup ruft Shutdown auf. Dort bleiben absichtlich
