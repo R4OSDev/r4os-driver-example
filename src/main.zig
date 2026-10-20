@@ -14,6 +14,7 @@ var gfx_output_mode = false;
 var gfx_mode_mode = false;
 var gfx_memory_mode = false;
 var owned_work_mode = false;
+var fpu_irq_mode = false;
 var gfx_allocation_mode = false;
 var cleanup_stress_started: bool = false;
 var storage_state: ExampleStorageState = .{};
@@ -106,6 +107,10 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
     }
 
     const mode = ctx.getOption("EXAMPLE", "mode");
+    if (optionEquals(mode, "fpu-irq-test")) {
+        fpu_irq_mode = true;
+        return @import("fpu_irq_test.zig").start(&ctx);
+    }
     if (optionEquals(mode, "owned-work-test")) {
         owned_work_mode = true;
         return if (@import("owned_work_probe.zig").start(&ctx)) 0 else -6;
@@ -286,10 +291,22 @@ fn dmaRangeSmoke(ctx: *const r4os.r4dev.DriverContext, mapping: *const r4os.abi.
 }
 
 export fn example_shutdown() callconv(.c) i32 {
+    if (fpu_irq_mode) {
+        const ctx = r4os.r4dev.DriverContext.init(driver_api orelse return -1);
+        const rc = @import("fpu_irq_test.zig").stop(&ctx);
+        if (rc == 0) {
+            fpu_irq_mode = false;
+            driver_api = null;
+        }
+        return rc;
+    }
     if (owned_work_mode) {
         const ctx = r4os.r4dev.DriverContext.init(driver_api orelse return -1);
         const rc = @import("owned_work_probe.zig").shutdown(&ctx);
-        if (rc == 0) { owned_work_mode = false; driver_api = null; }
+        if (rc == 0) {
+            owned_work_mode = false;
+            driver_api = null;
+        }
         return rc;
     }
     if (gfx_allocation_mode) {

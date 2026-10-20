@@ -123,3 +123,13 @@ after Init returns it obtains memory/display admission and creates/releases
 one CPU BO. All request state remains resident until completion and thread
 join. This optional case uses the existing EXAMPLE fixture and performs no
 device MMIO, GPU commands or physical display changes.
+
+`OPTION EXAMPLE mode=fpu-irq-test` selects the 0.1.22 test-only immutable
+shared IRQ0 subscriber. Its real callback uses different valid x87/MXCSR
+controls and all active YMM/MMX registers, then returns in x87 mode with the
+incoming SysV controls. Combined with Spectra's CPU0 `/ENVIRONMENT` bursts,
+the normal kernel IRQ guard must restore the interrupted register data and
+controls. IRQ0 is a timer subscriber, not an external-device IRQ. The
+callback allocates nothing, does not wait and logs nothing; initialization
+and acknowledged unregister own reporting. Default mode remains the normal
+EXAMPLE fixture. This mode is intended for an isolated Test image.
