@@ -17,7 +17,7 @@ fn irq(number: u8, _: usize) callconv(.c) u32 {
     _ = @atomicRmw(u32, &hits, .Add, 1, .release);
     return r4os.abi.irq_result_handled;
 }
-pub fn start(ctx: *const r4os.r4dev.DriverContext) i32 {
+pub fn start(ctx: *const r4os.r4dev.DriverContext2) i32 {
     hits = 0;
     failures = 0;
     if (ctx.irqRegister(0, irq, 0, r4os.abi.irq_flag_shared) != 0) return -1;
@@ -31,7 +31,7 @@ pub fn start(ctx: *const r4os.r4dev.DriverContext) i32 {
     ctx.logInfo("EXAMPLE FPU IRQ armed=1 irq=0 alternateCW=0B7F alternateMXCSR=5F80 vectors=16 mmx=8 mode=x87 immutable=yes");
     return 0;
 }
-pub fn stop(ctx: *const r4os.r4dev.DriverContext) i32 {
+pub fn stop(ctx: *const r4os.r4dev.DriverContext2) i32 {
     if (registered) {
         const rc = ctx.irqUnregister(0, irq, 0);
         if (rc != 0) return rc;

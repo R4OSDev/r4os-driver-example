@@ -6,10 +6,10 @@ const nv = @import("r4nv_binding");
 const a = r4os.abi;
 var queue: r4os.driver_queue.Context = undefined;
 var memory: r4os.driver_memory.Context = undefined;
-var context: r4os.r4dev.DriverContext = undefined;
+var context: r4os.r4dev.DriverContext2 = undefined;
 var binding: a.GfxBackendBinding = .{};
 
-pub fn init(ctx: *const r4os.r4dev.DriverContext, adapter: u32, epoch: u64) bool {
+pub fn init(ctx: *const r4os.r4dev.DriverContext2, adapter: u32, epoch: u64) bool {
     if (binding.device_generation != 0) return true;
     context = ctx.*;
     queue = ctx.graphicsQueue() orelse return false;

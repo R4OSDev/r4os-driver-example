@@ -6,7 +6,7 @@ while exercising the DriverApi v19 pin/map/sync/unmap DMA lifetime.
 
 ## Package
 
-- Version: `0.1.18`
+- Version: `0.1.24`
 - Image target: `/R4OS/DRIVERS/EXAMPLE.R4D`
 - Image scope: `test`
 - Canonical project manifest: `module.R4MF`
@@ -133,3 +133,18 @@ controls. IRQ0 is a timer subscriber, not an external-device IRQ. The
 callback allocates nothing, does not wait and logs nothing; initialization
 and acknowledged unregister own reporting. Default mode remains the normal
 EXAMPLE fixture. This mode is intended for an isolated Test image.
+
+API-Migration 0.90.53: Example 0.1.24
+Aktueller Einstieg DriverInit2/DriverApi2/Query2:2 mit SDK194/Contract93.
+Die technischen API2-Callbacks werden wirklich ueber die neue Tabelle
+aufgerufen; eigenstaendige Grafik-/Memory-/Thread-/Resource-Records
+behalten ihre eigene Revision1. Alte DriverApi-Versionszahlen in den
+folgenden historischen Abschnitten beschreiben den damaligen Stand.
+Pflichtfaehigkeiten und optionale passive/software Modi bleiben getrennt.
+Shared DriverPollBudget begrenzt die AMD4096-Versuche und NVIDIA8-Schritt-
+Callbacks zusaetzlich zu ihren urspruenglichen Zeitgrenzen. Ablauf bestaetigt
+weder Work noch DMA, Mapping, GPU-Fence oder Unload. Bestehende Original-
+Ownerorakel bleiben erhalten. Konkrete Host-/Windowskompilat-/native
+Modellbelege und physische Grenzen: Docs/API/ConsumerMigration.txt und
+Research/API-ABI/Migration/0.90.53/Abnahme.json. AMD/NVIDIA-Hardware und
+bekannte NVIDIA-Hang-/Shutdownbefunde werden dadurch nicht abgenommen.

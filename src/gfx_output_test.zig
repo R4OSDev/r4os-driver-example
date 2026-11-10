@@ -3,7 +3,7 @@ const r4os = @import("r4os");
 const gfx = @import("r4gfx_outputs");
 const a = r4os.abi;
 pub const adapter: u32 = 0xffff0007;
-var api: *const a.DriverApi = undefined;
+var api: *const a.DriverApi2 = undefined;
 var queues: r4os.driver_queue.Context = undefined;
 var outputs: r4os.driver_outputs.Context = undefined;
 var binding: a.GfxBackendBinding = .{};
@@ -14,7 +14,7 @@ var publication: a.GfxOutputPublication = .{};
 var parsed: gfx.edid.Report = .{};
 const qemu = @embedFile("fixtures/qemu.edid");
 const hisense = @embedFile("fixtures/ossipc-hisense-base.bin");
-pub fn init(ctx: *const r4os.r4dev.DriverContext) bool {
+pub fn init(ctx: *const r4os.r4dev.DriverContext2) bool {
     api = ctx.api;
     queues = ctx.graphicsQueue() orelse return false;
     outputs = ctx.graphicsOutputs() orelse return false;
@@ -43,7 +43,7 @@ fn publish(bytes: []const u8) bool {
     return publication.info.mode_count > 0 and outputs.publish(&publication, &identity) == a.gfx_output_ok;
 }
 fn notify(_: usize) callconv(.c) i32 {
-    const ctx = r4os.r4dev.DriverContext.init(api);
+    const ctx = r4os.r4dev.DriverContext2.init(api);
     var job: a.GfxDriverJob = .{};
     const rc = queues.take(&binding, &job);
     if (rc == a.gfx_queue_error_busy or rc == a.gfx_queue_error_device_lost) return 0;
@@ -70,7 +70,7 @@ fn notify(_: usize) callconv(.c) i32 {
     const result = if (success) a.gfx_queue_result_complete else a.gfx_queue_result_failed;
     return if (queues.complete(&job.fence, result, 1) == a.gfx_queue_ok) 0 else -1;
 }
-pub fn shutdown(ctx: *const r4os.r4dev.DriverContext) i32 {
+pub fn shutdown(ctx: *const r4os.r4dev.DriverContext2) i32 {
     if (binding.device_generation == 0) return 0;
     const deadline = ctx.tickCount() + ctx.timerFrequency();
     while (true) {

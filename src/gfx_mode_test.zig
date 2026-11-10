@@ -3,14 +3,14 @@
 const std = @import("std");
 const r4os = @import("r4os");
 const a = r4os.abi;
-var api: *const a.DriverApi = undefined;
+var api: *const a.DriverApi2 = undefined;
 var binding: a.GfxBackendBinding = .{};
 var shadow: a.GfxBufferReference = .{};
 var active: a.GfxNativeState = .{};
 var identity: a.GfxOutputId = .{};
 var publication: a.GfxOutputPublication = .{};
 var deliveries: u32 = 0;
-pub fn init(ctx: *const r4os.r4dev.DriverContext) bool {
+pub fn init(ctx: *const r4os.r4dev.DriverContext2) bool {
     api = ctx.api;
     const memory = ctx.memory() orelse return false;
     const outputs = ctx.graphicsOutputs() orelse return false;
@@ -60,7 +60,7 @@ pub fn init(ctx: *const r4os.r4dev.DriverContext) bool {
 fn commit(_: u64, _: u64, _: *const a.GfxNativeBootInfo) callconv(.c) i32 { return 1; }
 fn restore(_: u64, _: u64, _: *const a.GfxNativeBootInfo) callconv(.c) i32 { return 1; }
 fn notify(_: usize) callconv(.c) i32 {
-    const ctx = r4os.r4dev.DriverContext.init(api);
+    const ctx = r4os.r4dev.DriverContext2.init(api);
     const outputs = ctx.graphicsOutputs() orelse return -1;
     const queues = ctx.graphicsQueue() orelse return -1;
     var job: a.GfxDriverModeJob = .{};
@@ -94,7 +94,7 @@ fn notify(_: usize) callconv(.c) i32 {
     if (rc != a.gfx_queue_ok) return -6;
     return if (queues.complete(&present.fence, a.gfx_queue_result_complete, 1) == a.gfx_queue_ok) 0 else -7;
 }
-pub fn shutdown(ctx: *const r4os.r4dev.DriverContext) i32 {
+pub fn shutdown(ctx: *const r4os.r4dev.DriverContext2) i32 {
     if (active.retained != 0) {
         const display = ctx.graphicsDisplay() orelse return -1;
         var current: a.GfxNativeBootInfo = .{};

@@ -5,7 +5,7 @@ const r4os = @import("r4os");
 const std = @import("std");
 const a = r4os.abi;
 pub const adapter: u32 = 0xFFFF0006;
-var api: *const a.DriverApi = undefined;
+var api: *const a.DriverApi2 = undefined;
 var queues: r4os.driver_queue.Context = undefined;
 var binding: a.GfxBackendBinding = .{};
 var held: a.GfxDriverJob = .{};
@@ -21,7 +21,7 @@ var require_producer_exit = false;
 const Mapping = struct { reference: a.GfxBufferReference = .{}, dma: a.GfxDeviceLease = .{}, gpu: a.GfxDeviceLease = .{} };
 var mappings: [2]Mapping = .{Mapping{}} ** 2;
 
-pub fn init(ctx: *const r4os.r4dev.DriverContext) bool {
+pub fn init(ctx: *const r4os.r4dev.DriverContext2) bool {
     api = ctx.api;
     queues = ctx.graphicsQueue() orelse return false;
     cached_memory = ctx.memory() orelse return false;
@@ -40,7 +40,7 @@ pub fn init(ctx: *const r4os.r4dev.DriverContext) bool {
     return true;
 }
 fn notify(_: usize) callconv(.c) i32 {
-    const ctx = r4os.r4dev.DriverContext.init(api);
+    const ctx = r4os.r4dev.DriverContext2.init(api);
     if (@atomicLoad(u32, &armed, .acquire) != 0) return 0;
     if (mapping_work != 0) {
         var result: i32 = -1;
@@ -118,7 +118,7 @@ fn cleanupMappings(memory: *const r4os.driver_memory.Context) bool {
     }
     return memory.collect() == a.gfx_buffer_result_ok;
 }
-fn retainMappings(ctx: *const r4os.r4dev.DriverContext, memory: *const r4os.driver_memory.Context) bool {
+fn retainMappings(ctx: *const r4os.r4dev.DriverContext2, memory: *const r4os.driver_memory.Context) bool {
     const current_queue = ctx.graphicsQueue() orelse return false;
     var rejected: a.GfxBufferReference = .{};
     var stale = held.fence;
@@ -157,7 +157,7 @@ fn retainMappings(ctx: *const r4os.r4dev.DriverContext, memory: *const r4os.driv
     return true;
 }
 fn mappingWork(_: usize) callconv(.c) i32 {
-    const ctx = r4os.r4dev.DriverContext.init(api);
+    const ctx = r4os.r4dev.DriverContext2.init(api);
     const memory = ctx.memory() orelse return -1;
     // The existing DISPLAYD fixture cancels/releases the first producer and
     // kills/reaps the second. Wait for its retained backing before handing it
@@ -204,7 +204,7 @@ fn onIrq(_: u8, _: usize) callconv(.c) u32 {
     @atomicStore(u32, &armed, 0, .release);
     return 0; // Observes the shared timer; never owns it.
 }
-pub fn shutdown(ctx: *const r4os.r4dev.DriverContext) i32 {
+pub fn shutdown(ctx: *const r4os.r4dev.DriverContext2) i32 {
     if (binding.device_generation == 0) return 0;
     @atomicStore(u32, &closing, 1, .release);
     @atomicStore(u32, &armed, 0, .release);

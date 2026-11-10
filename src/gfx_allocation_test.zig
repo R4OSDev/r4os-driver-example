@@ -6,8 +6,8 @@ const epoch = 0x079190001;
 var memory: r4os.driver_memory.Context = undefined;
 var provider: a.GfxBufferHandle = .{};
 var cookie: u64 = 0;
-var context: r4os.r4dev.DriverContext = undefined;
-pub fn init(ctx: *const r4os.r4dev.DriverContext) bool {
+var context: r4os.r4dev.DriverContext2 = undefined;
+pub fn init(ctx: *const r4os.r4dev.DriverContext2) bool {
     context = ctx.*;
     memory = ctx.memory() orelse return false;
     if (memory.nativeRegister(&.{ .adapter_id = adapter, .memory_generation = epoch, .notify = @intFromPtr(&work) }, &provider) != 1) return false;

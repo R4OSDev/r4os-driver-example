@@ -3,7 +3,7 @@ const r4os = @import("r4os");
 const a = r4os.abi;
 const ok = a.gfx_buffer_result_ok;
 const std = @import("std");
-var driver_api: *const a.DriverApi = undefined;
+var driver_api: *const a.DriverApi2 = undefined;
 var cached: r4os.driver_memory.Context = undefined;
 var handoff: a.GfxBufferReference = .{};
 var worker: u32 = 0;
@@ -28,7 +28,7 @@ const small_descriptor: a.GfxBufferDescriptor = .{
         a.gfx_buffer_usage_transfer_source | a.gfx_buffer_usage_transfer_target,
 };
 
-pub fn run(ctx: *r4os.r4dev.DriverContext) bool {
+pub fn run(ctx: *r4os.r4dev.DriverContext2) bool {
     const memory = ctx.memory() orelse return failure(ctx, @src().line);
     driver_api = ctx.api;
     cached = memory;
@@ -50,7 +50,7 @@ pub fn run(ctx: *r4os.r4dev.DriverContext) bool {
         before.retained_bytes == after.retained_bytes;
 }
 
-fn workHandoff(ctx: *r4os.r4dev.DriverContext) bool {
+fn workHandoff(ctx: *r4os.r4dev.DriverContext2) bool {
     if (cached.bufferCreate(&small_descriptor, &handoff) != ok) return failure(ctx, @src().line);
     if (ctx.workSubmit(memoryWork, 0, 0, &worker) != 0) return failure(ctx, @src().line);
     var result: i32 = -1;
@@ -79,7 +79,7 @@ fn workHandoff(ctx: *r4os.r4dev.DriverContext) bool {
 }
 
 fn memoryWork(_: usize) callconv(.c) i32 {
-    var ctx = r4os.r4dev.DriverContext.init(driver_api);
+    var ctx = r4os.r4dev.DriverContext2.init(driver_api);
     const memory = ctx.memory() orelse return failureCode(&ctx, @src().line);
     if (memory.table.mmio_map != 0 or memory.table.mmio_unmap != 0) return failureCode(&ctx, @src().line);
     var window: a.GfxMmioWindow = .{};
@@ -101,7 +101,7 @@ fn memoryWork(_: usize) callconv(.c) i32 {
 }
 
 fn dedicatedDenied(_: usize) callconv(.c) i32 {
-    const ctx = r4os.r4dev.DriverContext.init(driver_api);
+    const ctx = r4os.r4dev.DriverContext2.init(driver_api);
     var output: a.GfxBufferDescriptor = .{};
     var stats: a.GfxBufferStats = .{};
     return if (ctx.memory() == null and cached.bufferDescribe(&handoff.reference, &output) == a.gfx_buffer_error_invalid and
@@ -120,7 +120,7 @@ pub fn prepareClose() bool {
     return true;
 }
 
-pub fn shutdown(ctx: *r4os.r4dev.DriverContext) i32 {
+pub fn shutdown(ctx: *r4os.r4dev.DriverContext2) i32 {
     if (worker != 0) {
         var result: i32 = -1;
         if (ctx.completionWait(worker, ctx.timerFrequency(), &result) != 0 or ctx.completionRelease(worker) != 0) return -1;
@@ -190,7 +190,7 @@ pub fn shutdown(ctx: *r4os.r4dev.DriverContext) i32 {
 
 // Synthetic opaque backing only: no native allocation is sent to hardware.
 // Both Init and ordinary Work traverse the real kernel ownership API.
-fn exerciseOwned(memory: *const r4os.driver_memory.Context, ctx: *r4os.r4dev.DriverContext) bool {
+fn exerciseOwned(memory: *const r4os.driver_memory.Context, ctx: *r4os.r4dev.DriverContext2) bool {
     var ticket: a.GfxOwnedBufferReservation = .{};
     var reference: a.GfxBufferReference = .{};
     var imported: a.GfxBufferReference = .{};
@@ -227,7 +227,7 @@ fn noRecovery(_: u64, _: u64, _: *const a.GfxNativeBootInfo) callconv(.c) i32 {
     return 0;
 }
 
-fn bootHold(memory: anytype, ctx: *r4os.r4dev.DriverContext) bool {
+fn bootHold(memory: anytype, ctx: *r4os.r4dev.DriverContext2) bool {
     const display = ctx.graphicsDisplay() orelse return failure(ctx, @src().line);
     // Exercise the actual kernel query with an old caller allocation. A new
     // provider must neither overwrite its canary nor demand the new tail.
@@ -332,7 +332,7 @@ fn heldNativeCommit(_: u64, _: u64, boot: *const a.GfxNativeBootInfo) callconv(.
     }
     return held_native_probe.commit_result;
 }
-fn heldNative(memory: anytype, ctx: *r4os.r4dev.DriverContext, display: *const r4os.driver_display.Context, boot: *const a.GfxNativeBootInfo, adapter: u32) bool {
+fn heldNative(memory: anytype, ctx: *r4os.r4dev.DriverContext2, display: *const r4os.driver_display.Context, boot: *const a.GfxNativeBootInfo, adapter: u32) bool {
     const queues = ctx.graphicsQueue() orelse return failure(ctx, @src().line);
     const outputs = ctx.graphicsOutputs() orelse return failure(ctx, @src().line);
     var binding: a.GfxBackendBinding = .{};
@@ -412,7 +412,7 @@ fn heldNative(memory: anytype, ctx: *r4os.r4dev.DriverContext, display: *const r
     return true;
 }
 
-fn exercise(memory: anytype, ctx: *r4os.r4dev.DriverContext) bool {
+fn exercise(memory: anytype, ctx: *r4os.r4dev.DriverContext2) bool {
     const bytes: u64 = 80 * 1024 * 1024;
     const descriptor: a.GfxBufferDescriptor = .{
         .byte_length = bytes,
@@ -506,14 +506,14 @@ fn exercise(memory: anytype, ctx: *r4os.r4dev.DriverContext) bool {
     return memory.mmioMap(&invalid, &window) == a.err_no_fn and window.handle.id == 0 and memory.collect() == ok;
 }
 
-fn failure(ctx: *const r4os.r4dev.DriverContext, line: u32) bool {
+fn failure(ctx: *const r4os.r4dev.DriverContext2, line: u32) bool {
     var buffer: [96]u8 = undefined;
     const text = @import("std").fmt.bufPrintZ(&buffer, "EXAMPLE.R4D gfx-memory failed line={d}", .{line}) catch unreachable;
     ctx.logError(text);
     return false;
 }
 
-fn failureCode(ctx: *const r4os.r4dev.DriverContext, line: u32) i32 {
+fn failureCode(ctx: *const r4os.r4dev.DriverContext2, line: u32) i32 {
     _ = failure(ctx, line);
     return -1;
 }

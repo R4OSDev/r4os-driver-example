@@ -1,7 +1,7 @@
 const r4os = @import("r4os");
 
 var irq_hits: u32 = 0;
-var driver_api: ?*const r4os.r4dev.DriverApi = null;
+var driver_api: ?*const r4os.r4dev.DriverApi2 = null;
 var irq_work_armed: bool = false;
 var irq_work_handle: u32 = 0;
 var deferred_work_hits: u32 = 0;
@@ -81,11 +81,12 @@ const ExampleUsbHostState = extern struct {
 };
 
 comptime {
-    asm (r4os.r4dev.driverEntriesAsm("example_init", "example_shutdown"));
+    if (!@import("builtin").is_test) asm (r4os.technical2.driverEntriesAsm("example_init", "example_shutdown"));
 }
 
-export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
-    var ctx = r4os.r4dev.DriverContext.init(api);
+export fn example_init(api: *const r4os.r4dev.DriverApi2) callconv(.c) i32 {
+    var ctx = r4os.r4dev.DriverContext2.init(api);
+    if (!ctx.requires(.{"get_option", "tick_count", "timer_frequency", "wait_ticks"})) return -3;
     driver_api = api;
 
     ctx.logInfo("EXAMPLE.R4D init");
@@ -193,7 +194,7 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
             return -1;
         }
     }
-    const has_dma_ranges = ctx.supportsDriverApi(34, @offsetOf(r4os.abi.DriverApi, "dma_sync_range_for_cpu") + 8);
+    const has_dma_ranges = ctx.requires(.{"dma_sync_range_for_cpu", "dma_sync_range_for_device"});
     if (has_dma_ranges and !dmaRangeSmoke(&ctx, &dma_mapping)) {
         _ = ctx.unmapDma(&dma_mapping);
         _ = ctx.unpinDmaBuffer(&dma_pin);
@@ -270,7 +271,7 @@ export fn example_init(api: *const r4os.r4dev.DriverApi) callconv(.c) i32 {
     return 0;
 }
 
-fn dmaRangeSmoke(ctx: *const r4os.r4dev.DriverContext, mapping: *const r4os.abi.DmaMapping) bool {
+fn dmaRangeSmoke(ctx: *const r4os.r4dev.DriverContext2, mapping: *const r4os.abi.DmaMapping) bool {
     // The handle selects the real retained backing; a caller cannot enlarge
     // it with forged descriptor lengths or substitute segment addresses.
     var descriptor = r4os.abi.DmaMapping{ .handle = mapping.handle, .requested_bytes = 0xffffffff };
@@ -292,7 +293,7 @@ fn dmaRangeSmoke(ctx: *const r4os.r4dev.DriverContext, mapping: *const r4os.abi.
 
 export fn example_shutdown() callconv(.c) i32 {
     if (fpu_irq_mode) {
-        const ctx = r4os.r4dev.DriverContext.init(driver_api orelse return -1);
+        const ctx = r4os.r4dev.DriverContext2.init(driver_api orelse return -1);
         const rc = @import("fpu_irq_test.zig").stop(&ctx);
         if (rc == 0) {
             fpu_irq_mode = false;
@@ -301,7 +302,7 @@ export fn example_shutdown() callconv(.c) i32 {
         return rc;
     }
     if (owned_work_mode) {
-        const ctx = r4os.r4dev.DriverContext.init(driver_api orelse return -1);
+        const ctx = r4os.r4dev.DriverContext2.init(driver_api orelse return -1);
         const rc = @import("owned_work_probe.zig").shutdown(&ctx);
         if (rc == 0) {
             owned_work_mode = false;
@@ -315,25 +316,25 @@ export fn example_shutdown() callconv(.c) i32 {
         return rc;
     }
     if (gfx_mode_mode) {
-        const ctx = r4os.r4dev.DriverContext.init(driver_api orelse return -1);
+        const ctx = r4os.r4dev.DriverContext2.init(driver_api orelse return -1);
         const rc = @import("gfx_mode_test.zig").shutdown(&ctx);
         if (rc != 0) return rc;
         gfx_mode_mode = false;
     }
     if (gfx_memory_mode) {
-        var ctx = r4os.r4dev.DriverContext.init(driver_api orelse return -1);
+        var ctx = r4os.r4dev.DriverContext2.init(driver_api orelse return -1);
         const rc = @import("gfx_memory_test.zig").shutdown(&ctx);
         if (rc != 0) return rc;
         gfx_memory_mode = false;
     }
     if (gfx_output_mode) {
-        const ctx = r4os.r4dev.DriverContext.init(driver_api orelse return -1);
+        const ctx = r4os.r4dev.DriverContext2.init(driver_api orelse return -1);
         const rc = @import("gfx_output_test.zig").shutdown(&ctx);
         if (rc != 0) return rc;
         gfx_output_mode = false;
     }
     if (gfx_queue_mode) {
-        const ctx = r4os.r4dev.DriverContext.init(driver_api orelse return -1);
+        const ctx = r4os.r4dev.DriverContext2.init(driver_api orelse return -1);
         const rc = @import("gfx_queue_test.zig").shutdown(&ctx);
         if (rc != 0) return rc;
         gfx_queue_mode = false;
@@ -366,7 +367,7 @@ fn irqHitCount() u32 {
     return hits.*;
 }
 
-fn deferredWorkSmoke(ctx: *const r4os.r4dev.DriverContext) bool {
+fn deferredWorkSmoke(ctx: *const r4os.r4dev.DriverContext2) bool {
     const wait_start = ctx.tickCount();
     while (workHandle() == 0 and ctx.tickCount() - wait_start < 10) {
         ctx.waitTicks(1);
@@ -424,7 +425,7 @@ fn deferredWorkHitCount() u32 {
     return hits.*;
 }
 
-fn workqueueStressSmoke(ctx: *const r4os.r4dev.DriverContext) bool {
+fn workqueueStressSmoke(ctx: *const r4os.r4dev.DriverContext2) bool {
     @atomicStore(bool, &work_stress_gate_open, false, .release);
     @atomicStore(bool, &work_stress_started, false, .release);
 
@@ -572,7 +573,7 @@ fn stressBlockingWork(context: usize) callconv(.c) i32 {
     @atomicStore(bool, &work_stress_started, true, .release);
     while (!@atomicLoad(bool, &work_stress_gate_open, .acquire)) {
         const api = driver_api orelse return -41;
-        const ctx = r4os.r4dev.DriverContext.init(api);
+        const ctx = r4os.r4dev.DriverContext2.init(api);
         ctx.waitTicks(1);
     }
     return 0;
@@ -590,7 +591,7 @@ fn stressErrorWork(context: usize) callconv(.c) i32 {
 
 fn armCleanupStress() bool {
     const api = driver_api orelse return false;
-    const ctx = r4os.r4dev.DriverContext.init(api);
+    const ctx = r4os.r4dev.DriverContext2.init(api);
     @atomicStore(bool, &cleanup_stress_started, false, .release);
     var running_handle: u32 = 0;
     if (ctx.workSubmit(cleanupBlockingWork, @intFromPtr(api), r4os.abi.driver_work_flag_none, &running_handle) != 0 or
@@ -617,8 +618,8 @@ fn armCleanupStress() bool {
 }
 
 fn cleanupBlockingWork(raw_api: usize) callconv(.c) i32 {
-    const api: *const r4os.r4dev.DriverApi = @ptrFromInt(raw_api);
-    const ctx = r4os.r4dev.DriverContext.init(api);
+    const api: *const r4os.r4dev.DriverApi2 = @ptrFromInt(raw_api);
+    const ctx = r4os.r4dev.DriverContext2.init(api);
     @atomicStore(bool, &cleanup_stress_started, true, .release);
     ctx.waitTicks(@max(@as(u64, ctx.timerFrequency()) / 10, 1));
     return 0;
@@ -637,7 +638,7 @@ fn optionUpper(value: u8) u8 {
     return value;
 }
 
-fn storageContractSmoke(ctx: *const r4os.r4dev.DriverContext) bool {
+fn storageContractSmoke(ctx: *const r4os.r4dev.DriverContext2) bool {
     var invalid_version = storage_backend;
     invalid_version.version = 0;
     if (ctx.registerStorageBackend("EXAMPLE-STOR-BAD", &invalid_version) >= 0) {
@@ -673,7 +674,7 @@ fn storageContractSmoke(ctx: *const r4os.r4dev.DriverContext) bool {
     return true;
 }
 
-fn usbHostContractSmoke(ctx: *const r4os.r4dev.DriverContext) bool {
+fn usbHostContractSmoke(ctx: *const r4os.r4dev.DriverContext2) bool {
     var invalid_version = usb_host_backend;
     invalid_version.version = 0;
     if (ctx.registerUsbHostController("EXAMPLE-USB-BAD", &invalid_version) >= 0) {
