@@ -16,10 +16,7 @@ var closing_before: a.GfxBufferStats = .{};
 var closing_armed = false;
 var closing_owned: a.GfxOwnedBufferReservation = .{};
 var closing_owned_live: a.GfxBufferReference = .{};
-const owned_descriptor: a.GfxBufferDescriptor = .{ .byte_length = 4091, .alignment = 65536, .usage = 12,
-    .modifier = 0x0300000000606010, .width = 5, .height = 3, .format = 0x3231564e, .plane_count = 2,
-    .plane_offsets = .{0,2048,0,0}, .plane_pitches = .{64,64,0,0},
-    .location = a.gfx_buffer_location_device_local, .adapter_id = 0xFFFF, .device_generation = 0x300000007 };
+const owned_descriptor: a.GfxBufferDescriptor = .{ .byte_length = 4091, .alignment = 65536, .usage = 12, .modifier = 0x0300000000606010, .width = 5, .height = 3, .format = 0x3231564e, .plane_count = 2, .plane_offsets = .{ 0, 2048, 0, 0 }, .plane_pitches = .{ 64, 64, 0, 0 }, .location = a.gfx_buffer_location_device_local, .adapter_id = 0xFFFF, .device_generation = 0x300000007 };
 const small_bytes = 3 * 4096;
 const small_descriptor: a.GfxBufferDescriptor = .{
     .byte_length = small_bytes,
@@ -35,9 +32,11 @@ pub fn run(ctx: *r4os.r4dev.DriverContext2) bool {
     var before: a.GfxBufferStats = .{};
     if (memory.bufferStats(&before) != ok) return failure(ctx, @src().line);
     const Prefix = extern struct { bytes: [112]u8 align(8), canary: [16]u8 };
-    var prefix: Prefix = undefined; @memset(std.mem.asBytes(&prefix), 0xA5);
+    var prefix: Prefix = undefined;
+    @memset(std.mem.asBytes(&prefix), 0xA5);
     const old: *a.GfxDriverMemoryApi = @ptrCast(&prefix);
-    old.version = 1; old.size = 113;
+    old.version = 1;
+    old.size = 113;
     if (ctx.api.gfx_memory_query.?(old) != ok or old.size != 112 or !std.mem.allEqual(u8, &prefix.canary, 0xA5)) return failure(ctx, @src().line);
     if (!exerciseOwned(&memory, ctx)) return failure(ctx, @src().line);
     ctx.logInfo("EXAMPLE.R4D gfx-owned init: OK prefix=112 canary=preserved exact-tickets=balanced opaque-layout=preserved");
@@ -176,7 +175,8 @@ pub fn shutdown(ctx: *r4os.r4dev.DriverContext2) i32 {
             cached.bufferRelease(&closing_owned_live.reference) != ok or
             cached.bufferTakeRelease(owned_descriptor.adapter_id, owned_descriptor.device_generation, &release) != ok or
             cached.bufferFinishRelease(&release, 0) != a.gfx_buffer_error_busy or cached.bufferFinishRelease(&release, 1) != ok) return -1;
-        closing_owned = .{}; closing_owned_live = .{};
+        closing_owned = .{};
+        closing_owned_live = .{};
         ctx.logInfo("EXAMPLE.R4D gfx-owned close: OK admission=closed abort-and-retire=balanced");
         var after: a.GfxBufferStats = .{};
         if (cached.collect() != ok or cached.bufferStats(&after) != ok or after.objects != closing_before.objects or
@@ -201,23 +201,25 @@ fn exerciseOwned(memory: *const r4os.driver_memory.Context, ctx: *r4os.r4dev.Dri
     if (memory.bufferCreate(&owned_descriptor, &reference) != a.gfx_buffer_error_unsupported) return failure(ctx, @src().line);
     if (memory.bufferReserve(&owned_descriptor, 0x100000079, &ticket) != ok or ticket.allocation_bytes != 65536 or ticket.driver_generation == 0) return failure(ctx, @src().line);
     if (memory.bufferImport(&ticket.reference, &imported) != a.gfx_buffer_error_closed or memory.bufferAbort(&ticket, 0) != a.gfx_buffer_error_busy) return failure(ctx, @src().line);
-    var forged = ticket; forged.cookie += 1;
+    var forged = ticket;
+    forged.cookie += 1;
     if (memory.bufferCommit(&forged, &reference) != a.gfx_buffer_error_stale or memory.bufferCommit(&ticket, &reference) != ok or
         memory.bufferImport(&reference.reference, &imported) != ok or memory.bufferMap(&reference.reference, 0, 0, 1, &cpu) != a.gfx_buffer_error_unsupported) return failure(ctx, @src().line);
     if (memory.bufferDescribe(&imported.reference, &described) != ok or described.modifier != owned_descriptor.modifier or
         described.byte_length != 4091 or described.plane_count != 2 or described.plane_offsets[1] != 2048 or described.plane_pitches[1] != 64 or
         described.driver_owner != ticket.driver_owner or described.device_generation != owned_descriptor.device_generation) return failure(ctx, @src().line);
-    if (memory.deviceAcquire(&reference.reference, &.{ .byte_length = 4091, .adapter_id = owned_descriptor.adapter_id,
-        .device_generation = owned_descriptor.device_generation, .gpu_virtual_address = 0x3000000000, .access = 1, .address_space = 1 }, &gpu) != ok) return failure(ctx, @src().line);
+    if (memory.deviceAcquire(&reference.reference, &.{ .byte_length = 4091, .adapter_id = owned_descriptor.adapter_id, .device_generation = owned_descriptor.device_generation, .gpu_virtual_address = 0x3000000000, .access = 1, .address_space = 1 }, &gpu) != ok) return failure(ctx, @src().line);
     if (memory.bufferRelease(&reference.reference) != ok or memory.bufferTakeRelease(owned_descriptor.adapter_id, owned_descriptor.device_generation, &release) != a.gfx_buffer_error_busy or
         memory.bufferRelease(&imported.reference) != ok or memory.bufferTakeRelease(owned_descriptor.adapter_id, owned_descriptor.device_generation, &release) != a.gfx_buffer_error_busy or
         memory.deviceRelease(&gpu, 0) != a.gfx_buffer_error_busy or memory.deviceRelease(&gpu, 1) != ok) return failure(ctx, @src().line);
-    var before: a.GfxBufferStats = .{}; var after: a.GfxBufferStats = .{};
+    var before: a.GfxBufferStats = .{};
+    var after: a.GfxBufferStats = .{};
     if (memory.bufferStats(&before) != ok or memory.bufferCreate(&small_descriptor, &reference) != ok or memory.bufferRelease(&reference.reference) != ok or
         memory.bufferStats(&after) != ok or after.committed_bytes != before.committed_bytes or after.objects != before.objects) return failure(ctx, @src().line);
     if (memory.bufferTakeRelease(owned_descriptor.adapter_id, owned_descriptor.device_generation + 1, &release) != a.gfx_buffer_error_busy or
         memory.bufferTakeRelease(owned_descriptor.adapter_id, owned_descriptor.device_generation, &release) != ok or memory.bufferFinishRelease(&release, 0) != a.gfx_buffer_error_busy) return failure(ctx, @src().line);
-    var wrong = release; wrong.byte_length -= 1;
+    var wrong = release;
+    wrong.byte_length -= 1;
     if (memory.bufferFinishRelease(&wrong, 1) != a.gfx_buffer_error_stale or memory.bufferFinishRelease(&release, 1) != ok or
         memory.bufferFinishRelease(&release, 1) != a.gfx_buffer_error_stale) return failure(ctx, @src().line);
     return true;
@@ -238,7 +240,8 @@ fn bootHold(memory: anytype, ctx: *r4os.r4dev.DriverContext2) bool {
     const Previous = extern struct { version: u32 = 1, size: u32 = 63, slots: [6]u64 = .{0} ** 6, canary: u64 = 0x0791307913079130 };
     var previous: Previous = .{};
     if (ctx.api.gfx_display_query.?(@ptrCast(&previous)) != a.gfx_output_ok or previous.size != 56 or
-        previous.canary != 0x0791307913079130 or previous.slots[5] == 0 or display.table.size != 64 or display.table.prepare_held == 0) return failure(ctx, @src().line);
+        previous.canary != 0x0791307913079130 or previous.slots[5] == 0 or
+        display.table.size != @sizeOf(a.GfxDriverDisplayApi) or display.table.prepare_held == 0) return failure(ctx, @src().line);
     var boot: a.GfxNativeBootInfo = .{};
     if (display.bootInfo(&boot) != a.gfx_output_ok or boot.state != 1 or boot.policy != 0) return failure(ctx, @src().line);
     var adapter: u32 = 0;
@@ -312,7 +315,9 @@ var held_native_probe: struct {
     native_restores: u32 = 0,
     commit_result: i32 = 2,
 } = .{};
-fn heldNativeNotify(_: usize) callconv(.c) i32 { return 0; }
+fn heldNativeNotify(_: usize) callconv(.c) i32 {
+    return 0;
+}
 fn heldNativeRestore(context: u64, _: u64, _: *const a.GfxNativeBootInfo) callconv(.c) i32 {
     if (context == 1) held_native_probe.old_restores += 1 else held_native_probe.native_restores += 1;
     return 1; // This fixture never changes scanout or admits GPU DMA.
@@ -343,33 +348,32 @@ fn heldNative(memory: anytype, ctx: *r4os.r4dev.DriverContext2, display: *const 
     defer _ = outputs.closeSource(&receiver_source);
     const receiver: a.GfxReceiverInfo = .{ .connector_id = 1, .flags = a.gfx_output_flag_connection_unknown };
     if (outputs.replaceReceivers(&.{ .source = receiver_source, .sequence = 1, .count = 1, .receivers = @intFromPtr(&receiver) }) != a.gfx_output_ok) return failure(ctx, @src().line);
-    var publication = a.GfxOutputPublication{ .backend = binding, .info = .{
-        .identity = .{ .adapter_id = adapter, .connector_id = 1, .device_generation = binding.device_generation },
-        .connector_kind = a.gfx_output_kind_virtual, .flags = a.gfx_output_flag_connection_unknown,
-        .mode_count = 1, .preferred_mode_id = 1, .possible_heads = 1, .possible_planes = 1, .possible_plls = 1,
-        .limits = .{ .head_mask = 1, .plane_mask = 1, .pll_mask = 1, .max_width = boot.width, .max_height = boot.height } } };
+    var publication = a.GfxOutputPublication{ .backend = binding, .info = .{ .identity = .{ .adapter_id = adapter, .connector_id = 1, .device_generation = binding.device_generation }, .connector_kind = a.gfx_output_kind_virtual, .flags = a.gfx_output_flag_connection_unknown, .mode_count = 1, .preferred_mode_id = 1, .possible_heads = 1, .possible_planes = 1, .possible_plls = 1, .limits = .{ .head_mask = 1, .plane_mask = 1, .pll_mask = 1, .max_width = boot.width, .max_height = boot.height } } };
     publication.modes[0] = .{ .mode_id = 1, .width = boot.width, .height = boot.height, .flags = a.gfx_output_mode_geometry_only | a.gfx_output_mode_preferred };
     var output: a.GfxOutputId = .{};
     if (outputs.publish(&publication, &output) != a.gfx_output_ok) return failure(ctx, @src().line);
     const bytes = @as(u64, boot.pitch) * boot.height;
     var snapshot: a.GfxBufferReference = .{};
     if (memory.bufferCreate(&.{ .byte_length = bytes, .usage = a.gfx_buffer_usage_cpu_read | a.gfx_buffer_usage_cpu_write }, &snapshot) != ok) return failure(ctx, @src().line);
-    defer if (snapshot.reference.id != 0) { _ = memory.bufferRelease(&snapshot.reference); };
+    defer if (snapshot.reference.id != 0) {
+        _ = memory.bufferRelease(&snapshot.reference);
+    };
     var shadow: a.GfxBufferReference = .{};
-    if (memory.bufferCreate(&.{ .byte_length = @as(u64, boot.width) * boot.height * 4, .width = boot.width, .height = boot.height,
-        .format = a.gfx_buffer_format_xrgb8888, .plane_count = 1, .plane_pitches = .{ @as(u64, boot.width) * 4, 0, 0, 0 },
-        .usage = a.gfx_buffer_usage_cpu_read | a.gfx_buffer_usage_cpu_write | a.gfx_buffer_usage_transfer_source }, &shadow) != ok) return failure(ctx, @src().line);
-    defer if (shadow.reference.id != 0) { _ = memory.bufferRelease(&shadow.reference); };
-    var candidate = a.GfxNativeRegistration{ .backend = binding, .output = output, .reference = shadow.reference,
-        .context = 2, .commit_callback = @intFromPtr(&heldNativeCommit), .restore_callback = @intFromPtr(&heldNativeRestore) };
+    if (memory.bufferCreate(&.{ .byte_length = @as(u64, boot.width) * boot.height * 4, .width = boot.width, .height = boot.height, .format = a.gfx_buffer_format_xrgb8888, .plane_count = 1, .plane_pitches = .{ @as(u64, boot.width) * 4, 0, 0, 0 }, .usage = a.gfx_buffer_usage_cpu_read | a.gfx_buffer_usage_cpu_write | a.gfx_buffer_usage_transfer_source }, &shadow) != ok) return failure(ctx, @src().line);
+    defer if (shadow.reference.id != 0) {
+        _ = memory.bufferRelease(&shadow.reference);
+    };
+    var candidate = a.GfxNativeRegistration{ .backend = binding, .output = output, .reference = shadow.reference, .context = 2, .commit_callback = @intFromPtr(&heldNativeCommit), .restore_callback = @intFromPtr(&heldNativeRestore) };
     @memcpy(candidate.name[0..7], "EXAMPLE");
     var state: a.GfxNativeState = .{};
     if (display.prepare(&candidate, &state) != a.gfx_output_error_stale) return failure(ctx, @src().line);
     if (outputs.replaceReceivers(&.{ .source = receiver_source, .sequence = 2, .count = 1, .receivers = @intFromPtr(&receiver) }) != a.gfx_output_ok) return failure(ctx, @src().line);
     var held: a.GfxNativeState = .{};
-    if (display.bootHold(&.{ .adapter_id = adapter, .generation = boot.generation, .reference = snapshot.reference,
-        .context = 1, .restore_callback = @intFromPtr(&heldNativeRestore) }, &held) != a.gfx_output_ok or held.retained != 1) return failure(ctx, @src().line);
-    defer if (held.retained != 0) { var cleanup: a.GfxNativeState = .{}; _ = display.bootFinish(held.generation, 2, &cleanup); };
+    if (display.bootHold(&.{ .adapter_id = adapter, .generation = boot.generation, .reference = snapshot.reference, .context = 1, .restore_callback = @intFromPtr(&heldNativeRestore) }, &held) != a.gfx_output_ok or held.retained != 1) return failure(ctx, @src().line);
+    defer if (held.retained != 0) {
+        var cleanup: a.GfxNativeState = .{};
+        _ = display.bootFinish(held.generation, 2, &cleanup);
+    };
     var read: a.GfxBufferMap = .{};
     if (memory.bufferMap(&snapshot.reference, a.gfx_buffer_map_read, 0, bytes, &read) != ok) return failure(ctx, @src().line);
     defer _ = memory.bufferUnmap(&read.lease);
