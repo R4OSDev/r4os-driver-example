@@ -145,6 +145,9 @@ fn retainMappings(ctx: *const r4os.r4dev.DriverContext2, memory: *const r4os.dri
         var gpu = request;
         gpu.access = 3;
         gpu.address_space = 1;
+        // GPU VA spans describe logical bytes; DMA retains the complete
+        // allocated page through its independent mapping-only lease.
+        gpu.byte_length = descriptor.byte_length;
         gpu.gpu_virtual_address = 0x100000000 + index * 4096;
         if (memory.deviceAcquire(&mapping.reference.reference, &gpu, &mapping.gpu) != a.gfx_buffer_result_ok or
             memory.deviceRelease(&mapping.gpu, 0) != a.gfx_buffer_error_busy or

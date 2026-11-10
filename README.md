@@ -135,7 +135,7 @@ and acknowledged unregister own reporting. Default mode remains the normal
 EXAMPLE fixture. This mode is intended for an isolated Test image.
 
 API-Migration 0.90.53: Example 0.1.24
-Aktueller Einstieg DriverInit2/DriverApi2/Query2:2 mit SDK194/Contract93.
+Aktueller Einstieg DriverInit2/DriverApi2/Query2:2 mit SDK195/Contract93.
 Die technischen API2-Callbacks werden wirklich ueber die neue Tabelle
 aufgerufen; eigenstaendige Grafik-/Memory-/Thread-/Resource-Records
 behalten ihre eigene Revision1. Alte DriverApi-Versionszahlen in den
